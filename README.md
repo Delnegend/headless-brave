@@ -1,6 +1,6 @@
 # Headless Brave
 
-Run Brave browser in a Docker container with VNC and Chrome DevTools Protocol (CDP) access — perfect for AI agents and browser automation.
+Run Brave browser in a Docker container with VNC and Chrome DevTools Protocol (CDP) access, perfect for AI agents and browser automation.
 
 ## What it does
 
@@ -31,10 +31,13 @@ Password: headless
 
 ### Connect via CDP (for AI agents)
 
-Configure in your `opencode.json`:
+<details>
+<summary><b>opencode</b></summary>
 
-```json
+`~/.config/opencode/opencode.jsonc`:
+```jsonc
 {
+  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "browser": {
       "type": "local",
@@ -44,6 +47,41 @@ Configure in your `opencode.json`:
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><b>Claude Code</b></summary>
+
+`~/.claude/settings.json`:
+```json
+{
+  "mcpServers": {
+    "browser": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp", "--cdp-endpoint", "ws://localhost:9222"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><b>Zed</b></summary>
+
+`~/.config/zed/settings.json`:
+```json
+{
+  "mcp": {
+    "browser": {
+      "command": ["npx", "-y", "@playwright/mcp", "--cdp-endpoint", "ws://localhost:9222"]
+    }
+  }
+}
+```
+
+</details>
 
 Or connect directly with Playwright:
 
