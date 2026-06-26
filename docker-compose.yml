@@ -1,0 +1,14 @@
+services:
+  brave:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: brave-headless
+    shm_size: 2gb
+    ports:
+      - "5900:5900"
+      - "9222:9222"
+    environment:
+      - RESOLUTION=1920x1080
+      - VNC_PASSWORD=headless
+    restart: unless-stopped
