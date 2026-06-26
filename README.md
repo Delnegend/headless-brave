@@ -70,17 +70,16 @@ Password: headless
 <details>
 <summary><b>Zed</b></summary>
 
-`~/.config/zed/settings.json`:
+Add to `~/.config/zed/settings.json`:
 ```json
 {
-  "mcp": {
-    "browser": {
-      "command": ["npx", "-y", "@playwright/mcp", "--cdp-endpoint", "ws://localhost:9222"]
-    }
+  "browser": {
+    "command": "npx",
+    "args": ["-y", "@playwright/mcp", "--cdp-endpoint", "ws://localhost:9222"],
+    "env": {}
   }
 }
 ```
-
 </details>
 
 Or connect directly with Playwright:
