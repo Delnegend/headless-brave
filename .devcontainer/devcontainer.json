@@ -1,0 +1,33 @@
+{
+	"name": "headless-brave",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	"containerUser": "headless-brave",
+	"remoteUser": "headless-brave",
+	"runArgs": [
+		"--hostname=headless-brave",
+		"--security-opt",
+		"label=disable",
+		"--userns=keep-id",
+		"-v",
+		"cargo-cache:/usr/local/cargo",
+		"-v",
+		"podman-cache:/home/headless-brave/.local/share/containers",
+		"-v",
+		"/var/run/docker.sock:/var/run/docker.sock"
+	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"tamasfe.even-better-toml",
+				"fill-labs.dependi"
+			],
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "bash"
+			}
+		}
+	},
+	"postCreateCommand": "bash .devcontainer/postinstall.sh"
+}
