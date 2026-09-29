@@ -1,0 +1,7 @@
+target/
+.git/
+.github/
+README.md
+LICENSE
+.devcontainer/
+docker-compose.yml
