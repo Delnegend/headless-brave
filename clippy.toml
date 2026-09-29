@@ -1,0 +1,6 @@
+# Assertions are fine where a failure is a bug in the test itself, not in the
+# code under test.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

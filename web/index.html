@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Headless Brave</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #14161a;
+        --muted: #8b91a0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--muted);
+        font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      /* Nothing but the desktop. The canvas is sized by noVNC to the screen
+         and then scaled down to fit whatever window it lands in. */
+      #screen {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+      #screen > div {
+        box-shadow: 0 0 0 1px #2c313a, 0 18px 50px #0009;
+      }
+      /* Only ever seen when the desktop cannot be shown. */
+      #notice {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        margin: 0;
+        padding: 2rem;
+        text-align: center;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="screen"></main>
+    <p id="notice" role="status"></p>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
