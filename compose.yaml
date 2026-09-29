@@ -16,10 +16,13 @@ services:
       - "127.0.0.1:8000:80"
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:9222:9222"
-    # Everything the browser remembers: cookies, logins, history, extensions.
-    # "docker compose down -v" is what throws it away.
+    # Everything the browser remembers — cookies, logins, history, extensions —
+    # and the browser itself, which is installed onto its own volume on the
+    # first start so a new release costs a restart rather than a rebuild.
+    # "docker compose down -v" is what throws both away.
     volumes:
       - brave-data:/data
+      - brave-opt:/opt
     environment:
       - RESOLUTION=1920x1080
       - VNC_PASSWORD=headless
@@ -27,3 +30,4 @@ services:
 
 volumes:
   brave-data:
+  brave-opt:

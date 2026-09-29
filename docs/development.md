@@ -63,6 +63,11 @@ packages, and the only thing built is the Rust service.
   `/usr/share/novnc` and served from there. It is the client half of the web
   UI, and it is the reason there is no `build.rs` fetching a pinned copy: the
   package is versioned, patched and upgraded by the distribution.
+- **Brave** is installed by the entrypoint onto a volume at `/opt`, so a new
+  release costs a restart instead of a rebuild. The image keeps the shared
+  libraries it links against and drops the payload again, which is the part
+  that moves. `BRAVE_UPGRADE=1` makes the entrypoint ask apt for something
+  newer on each start. The first boot needs the network; later ones do not.
 - **x11vnc** serves the screen. Two of its flags matter and are easy to undo by
   accident. `-shared` is what lets several people watch at once, and `-forever`
   is what keeps serving after the last one leaves — the browser is driven over

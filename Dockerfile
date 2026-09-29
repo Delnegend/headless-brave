@@ -30,12 +30,18 @@ RUN --mount=type=cache,target=/var/cache/apt \
     wget gnupg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Brave itself is installed at container start onto a volume, so a new release
+# costs a restart rather than a rebuild. Only the shared libraries it links
+# against are baked in here — they move far less often than the browser — and
+# the payload under /opt is dropped again so the image does not carry a copy
+# that the volume immediately shadows.
 RUN wget -O /tmp/brave.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
     && gpg --dearmor -o /usr/share/keyrings/brave-browser-archive-keyring.gpg /tmp/brave.gpg \
     && rm /tmp/brave.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" \
     > /etc/apt/sources.list.d/brave-browser-release.list \
     && apt-get update && apt-get install -y --no-install-recommends brave-browser \
+    && rm -rf /opt/brave.com /etc/cron.daily/brave-browser \
     && rm -rf /var/lib/apt/lists/*
 
 COPY entrypoint.sh /entrypoint.sh

@@ -117,12 +117,23 @@ await page.goto('https://example.com');
 ## Keeping data
 
 The browser's profile — cookies, logins, history, extensions, local storage —
-lives on a named volume at `/data`, so it survives `docker compose up --build`,
-`down`, and plain restarts. Anything you log into on the web UI is still logged
-in the next time.
+lives on a named volume at `/data`, so it survives a rebuild, a recreate and a
+plain restart. Anything you log into on the web UI is still logged in next
+time.
+
+The browser itself lives on a second volume, at `/opt`, and is installed the
+first time the container starts. Only the shared libraries it links against are
+in the image, so a new Brave release costs a restart rather than a rebuild:
 
 ```bash
-docker compose down -v   # throws the profile away
+BRAVE_UPGRADE=1 docker compose up -d    # ask apt for a newer Brave
+```
+
+`BRAVE_UPGRADE` is off by default because it downloads on every start. The
+first boot needs the network; after that a restart does not.
+
+```bash
+docker compose down -v   # throws the profile and the browser away
 ```
 
 To keep the profile somewhere on the host instead, replace the volume with a
@@ -150,6 +161,8 @@ agent was doing.
 |---|---|---|
 | `RESOLUTION` | `1920x1080` | Size of the virtual screen |
 | `BRAVE_PROFILE` | `/data/profile` | Where the browser keeps its profile; the compose file mounts a volume here |
+| `BRAVE_ROOT` | `/opt/brave.com` | Where the browser is installed; the compose file mounts a volume here |
+| `BRAVE_UPGRADE` | `0` | `1` asks apt for a newer Brave on every start |
 | `VNC_DISPLAY` | `:99` | X display the browser runs on |
 | `VNC_PORT` | `5900` | Port x11vnc serves the screen on |
 | `VNC_PASSWORD` | `headless` | VNC password, stored on every boot |
@@ -223,8 +236,8 @@ so there is nothing on screen to fill in.
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | Builds the Rust service, and the runtime image around Brave and x11vnc |
-| `entrypoint.sh` | Starts the screen, the window manager, the browser, x11vnc and the service |
+| `Dockerfile` | Builds the Rust service, and the runtime image around Brave's dependencies and x11vnc |
+| `entrypoint.sh` | Installs the browser if it is missing, then starts the screen, the window manager, the browser, x11vnc and the service |
 | `src/` | `headless-brave-web` — web UI, VNC bridge, CDP proxy, noVNC assets |
 | `web/` | The page and its script |
 | `.devcontainer/` | Development container |

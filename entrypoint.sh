@@ -21,6 +21,8 @@ web_port="${WEB_PORT:-80}"
 cdp_port="${CDP_PORT:-9222}"
 profile="${BRAVE_PROFILE:-/data/profile}"
 brave_cdp_port="${BROWSER_CDP_PORT:-9224}"
+brave_root="${BRAVE_ROOT:-/opt/brave.com}"
+brave_binary="$brave_root/brave/brave"
 
 if [[ ! $resolution =~ ^[0-9]+x[0-9]+$ ]]; then
   log "RESOLUTION must look like 1920x1080, got '$resolution'"
@@ -38,6 +40,13 @@ if [[ $profile != /* ]]; then
   log "BRAVE_PROFILE must be an absolute path, got '$profile'"
   exit 1
 fi
+# The install creates the directory tree, so check the mount point it hangs
+# from rather than the directory itself.
+brave_mount="${brave_root%/*}"
+if [[ $brave_root != /* || $brave_mount == "$brave_root" || ! -d $brave_mount ]]; then
+  log "BRAVE_ROOT must sit under an existing directory, got '$brave_root'"
+  exit 1
+fi
 
 mkdir -p "$profile" /run/x11vnc /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
@@ -48,6 +57,34 @@ rm -f "/tmp/.X${display#:}-lock" "/tmp/.X11-unix/X${display#:}"
 
 # x11vnc's -storepasswd writes to a file it will not create for itself.
 touch /run/x11vnc/passwd
+
+# The browser lives on a volume so that a new release costs a restart rather
+# than a rebuild. Its shared libraries are already in the image, so this is one
+# package: on the first boot only.
+install_brave() {
+  log "installing Brave into ${brave_root}"
+  apt-get update -qq
+  # --reinstall because the image records the package as installed while its
+  # payload has been dropped and lives on the volume instead.
+  apt-get install -y -qq --no-install-recommends --reinstall brave-browser
+  rm -rf /var/lib/apt/lists/*
+}
+
+if [[ ! -x $brave_binary ]]; then
+  install_brave
+elif [[ ${BRAVE_UPGRADE:-0} == 1 ]]; then
+  # Ask apt whether there is anything newer, and take it if so. Off by default
+  # because it costs a download on every start.
+  log "checking for a newer Brave"
+  apt-get update -qq
+  apt-get install -y -qq --no-install-recommends brave-browser
+  rm -rf /var/lib/apt/lists/*
+fi
+
+if [[ ! -x $brave_binary ]]; then
+  log "Brave is not installed at $brave_binary"
+  exit 1
+fi
 
 children=()
 names=()
@@ -92,7 +129,7 @@ log "starting Brave"
 # The container is stopped abruptly, so a profile that survives it always looks
 # like a crash to the browser. Without this, a "Restore pages?" bubble is
 # waiting on the shared desktop every time, covering whatever it was doing.
-DISPLAY="$display" /usr/bin/brave-browser \
+DISPLAY="$display" "$brave_binary" \
   --no-sandbox \
   --disable-gpu \
   --no-first-run \
