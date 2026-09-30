@@ -30,8 +30,6 @@ pub struct Session {
 pub struct Brave {
     /// Where the payload is installed.
     pub root: PathBuf,
-    /// Whether to ask for a newer release on every start.
-    pub upgrade: bool,
 }
 
 impl Brave {
@@ -122,10 +120,7 @@ impl Config {
                 display,
                 resolution: string("RESOLUTION", "1920x1080").parse()?,
                 profile,
-                brave: Brave {
-                    root,
-                    upgrade: flag("BRAVE_UPGRADE")?,
-                },
+                brave: Brave { root },
             },
         })
     }
@@ -147,14 +142,6 @@ fn path(key: &str, default: &str) -> Result<PathBuf> {
         bail!("{key} must be an absolute path, got {value:?}");
     }
     Ok(PathBuf::from(value))
-}
-
-fn flag(key: &str) -> Result<bool> {
-    match env::var(key).as_deref() {
-        Err(_) | Ok("0") => Ok(false),
-        Ok("1") => Ok(true),
-        Ok(other) => bail!("{key} must be 0 or 1, got {other:?}"),
-    }
 }
 
 fn number(key: &str, default: u16) -> Result<u16> {

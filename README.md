@@ -126,14 +126,23 @@ time.
 
 The browser itself lives on a second volume, at `/opt`, and is installed the
 first time the container starts. Only the shared libraries it links against are
-in the image, so a new Brave release costs a restart rather than a rebuild:
+in the image, so a new Brave release costs a restart rather than a rebuild.
 
-```bash
-BRAVE_UPGRADE=1 docker compose up -d    # ask apt for a newer Brave
-```
+**It keeps itself up to date.** Every six hours the service asks Brave's
+repository whether a newer release exists, and installs it if so — no flag, no
+restart, nothing for you to remember. Brave ships security releases weekly at
+best, and a container nobody touches should not be the reason a known browser
+fix goes unpicked.
 
-`BRAVE_UPGRADE` is off by default because it downloads on every start. The
-first boot needs the network; after that a restart does not.
+Installing an update restarts *only* the browser. Xvfb, fluxbox, x11vnc and the
+web service stay up, so a VNC session survives and the window simply comes back
+after a few seconds. What does not survive is whatever the browser was in the
+middle of: an unattended update takes whatever the automation was doing with
+it. Anything the browser does that you care about should be driven from the
+CDP side, where a reconnect is the caller's problem to handle.
+
+A repository that cannot be reached is not a problem — the working browser is
+left alone and the next check tries again.
 
 ```bash
 docker compose down -v   # throws the profile and the browser away
@@ -174,7 +183,6 @@ agent was doing.
 | `RESOLUTION` | `1920x1080` | Size of the virtual screen |
 | `BRAVE_PROFILE` | `/data/profile` | Where the browser keeps its profile; the compose file mounts a volume here |
 | `BRAVE_ROOT` | `/opt/brave.com` | Where the browser is installed; the compose file mounts a volume here |
-| `BRAVE_UPGRADE` | `0` | `1` asks apt for a newer Brave on every start |
 | `VNC_DISPLAY` | `:99` | X display the browser runs on |
 | `VNC_PORT` | `5900` | Port x11vnc serves the screen on |
 | `VNC_PASSWORD` | `headless` | VNC password, stored on every boot |

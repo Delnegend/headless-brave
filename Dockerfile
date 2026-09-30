@@ -26,7 +26,6 @@ ENV WEB_PORT=8000
 ENV CDP_PORT=9222
 ENV BRAVE_PROFILE=/data/profile
 ENV BRAVE_ROOT=/opt/brave.com
-ENV BRAVE_UPGRADE=0
 ENV RUST_LOG=headless_brave_web=info,warn
 
 # The container runs as this user, not root. Chromium refuses to start as root

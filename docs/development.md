@@ -86,15 +86,20 @@ packages, and the only thing built is the Rust service.
 - **Brave** is installed at start onto a volume at `/opt`, so a new
   release costs a restart instead of a rebuild. The image keeps the shared
   libraries it links against and drops the payload again, which is the part
-  that moves. `BRAVE_UPGRADE=1` makes the service ask apt for something
-  newer on each start. The first boot needs the network; later ones do not.
+  that moves. The first boot needs the network; later ones do not.
+  Keeping it current is a ticker rather than a switch: it asks the repository
+  every six hours and installs whatever is newer. Brave ships security
+  releases weekly at best, and this container is exactly the kind that nobody
+  remembers to update.
   The install is `apt-get download` plus `dpkg-deb --extract` rather than
   `apt-get install`, because there is no root here and no dpkg database in the
   container to reinstall into. apt is pointed at an index under the temporary
   directory, since the one in the image is not ours to write, and the package
   is unpacked and moved *inside* the volume: a rename cannot cross filesystems,
   and `/tmp` is not on the volume. The version it unpacked is recorded in
-  `/opt/brave.com/VERSION`, which is what `BRAVE_UPGRADE=1` compares against.
+  `/opt/brave.com/VERSION`, which is what the ticker compares against. A
+  repository it could not ask is not treated as an upgrade: otherwise a
+  network outage would put a reinstall on every tick.
 - **The browser** runs as the unprivileged `headless` user the image creates,
   because Chromium refuses to start as root unless `--no-sandbox` is passed,
   and the sandbox is worth keeping for something browsing the open web. The
