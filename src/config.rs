@@ -1,6 +1,6 @@
 //! Runtime configuration, read once from the environment.
 
-use std::{env, net::SocketAddr, path::PathBuf};
+use std::{env, fmt, net::SocketAddr, path::PathBuf, str::FromStr};
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -14,6 +14,65 @@ pub struct VncTarget {
     pub password: String,
 }
 
+/// The screen the browser is drawn on, and the browser itself.
+#[derive(Clone, Debug)]
+pub struct Session {
+    /// X display number, without the colon.
+    pub display: u16,
+    pub resolution: Resolution,
+    /// Where the browser keeps its profile.
+    pub profile: PathBuf,
+    pub brave: Brave,
+}
+
+/// The browser's install, which lives on a volume rather than in the image.
+#[derive(Clone, Debug)]
+pub struct Brave {
+    /// Where the payload is installed.
+    pub root: PathBuf,
+    /// Whether to ask for a newer release on every start.
+    pub upgrade: bool,
+}
+
+impl Brave {
+    /// The browser itself, which is a file rather than the launcher the
+    /// package installs: the launcher lives in the image, and the payload it
+    /// points at is the part that lives on the volume.
+    pub fn binary(&self) -> PathBuf {
+        self.root.join("brave").join("brave")
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Resolution {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl fmt::Display for Resolution {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}x{}", self.width, self.height)
+    }
+}
+
+impl FromStr for Resolution {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        let parse = |part: &str| -> Result<u32> {
+            part.parse()
+                .with_context(|| format!("{part} is not a number of pixels"))
+        };
+        match value.split_once('x') {
+            Some((width, height)) => Ok(Self {
+                width: parse(width)?,
+                height: parse(height)?,
+            }),
+            None => bail!("expected WIDTHxHEIGHT, got {value:?}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Address for the web UI and its WebSocket bridge.
@@ -21,12 +80,12 @@ pub struct Config {
     /// Address for the CDP WebSocket proxy, kept separate so existing
     /// `ws://host:9222/` client configurations keep working.
     pub cdp_addr: SocketAddr,
-    /// x11vnc, the desktop the web UI shows.
     pub vnc: VncTarget,
     /// Brave's `DevTools` HTTP endpoint, used to discover the browser WebSocket.
     pub cdp_version_url: String,
     /// Where the noVNC client is served from, installed by the distribution.
     pub novnc_dir: PathBuf,
+    pub session: Session,
 }
 
 impl Config {
@@ -44,12 +103,30 @@ impl Config {
             bail!("VNC_PASSWORD must not be empty");
         }
 
+        let display = string("VNC_DISPLAY", ":99");
+        let display = display
+            .strip_prefix(':')
+            .and_then(|number| number.parse().ok())
+            .with_context(|| format!("VNC_DISPLAY must look like :99, got {display:?}"))?;
+
+        let profile = path("BRAVE_PROFILE", "/data/profile")?;
+        let root = path("BRAVE_ROOT", "/opt/brave.com")?;
+
         Ok(Self {
             web_addr: resolve(&bind, web_port)?,
             cdp_addr: resolve(&bind, cdp_port)?,
             vnc,
             cdp_version_url: string("BROWSER_CDP_URL", "http://127.0.0.1:9224/json/version"),
-            novnc_dir: PathBuf::from(string("NOVNC_DIR", "/usr/share/novnc")),
+            novnc_dir: path("NOVNC_DIR", "/usr/share/novnc")?,
+            session: Session {
+                display,
+                resolution: string("RESOLUTION", "1920x1080").parse()?,
+                profile,
+                brave: Brave {
+                    root,
+                    upgrade: flag("BRAVE_UPGRADE")?,
+                },
+            },
         })
     }
 }
@@ -64,6 +141,22 @@ fn string(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
 }
 
+fn path(key: &str, default: &str) -> Result<PathBuf> {
+    let value = string(key, default);
+    if !value.starts_with('/') {
+        bail!("{key} must be an absolute path, got {value:?}");
+    }
+    Ok(PathBuf::from(value))
+}
+
+fn flag(key: &str) -> Result<bool> {
+    match env::var(key).as_deref() {
+        Err(_) | Ok("0") => Ok(false),
+        Ok("1") => Ok(true),
+        Ok(other) => bail!("{key} must be 0 or 1, got {other:?}"),
+    }
+}
+
 fn number(key: &str, default: u16) -> Result<u16> {
     env::var(key).map_or_else(
         |_| Ok(default),
@@ -72,4 +165,32 @@ fn number(key: &str, default: u16) -> Result<u16> {
                 .with_context(|| format!("{key} must be a port number, got {raw:?}"))
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Resolution;
+
+    #[test]
+    fn reads_a_resolution() {
+        let parsed: Resolution = "1920x1080".parse().expect("parses");
+        assert_eq!((parsed.width, parsed.height), (1920, 1080));
+    }
+
+    #[test]
+    fn round_trips_through_its_display_form() {
+        let resolution = Resolution {
+            width: 800,
+            height: 600,
+        };
+        assert_eq!(resolution.to_string(), "800x600");
+    }
+
+    #[test]
+    fn refuses_a_resolution_it_cannot_use() {
+        assert!("1920".parse::<Resolution>().is_err());
+        assert!("1920x".parse::<Resolution>().is_err());
+        assert!("x1080".parse::<Resolution>().is_err());
+        assert!("19twenty.x1080".parse::<Resolution>().is_err());
+    }
 }

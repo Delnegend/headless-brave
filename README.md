@@ -148,7 +148,7 @@ The container runs as root, so the profile is used as it is found; a bind mount
 needs no pre-chowning.
 
 One thing to know: a persisted profile keeps Chromium's single-instance lock,
-which names a process that no longer exists after a stop. The entrypoint clears
+which names a process that no longer exists after a stop. The service clears
 it before launching the browser — without that, Brave refuses to start and the
 container comes up with no browser at all. For the same reason the browser is
 told not to offer session restore: every stop looks like a crash to it, and the
@@ -190,7 +190,7 @@ flowchart TB
     end
 
     subgraph container["headless-brave container"]
-        entry["entrypoint.sh"]
+        entry["headless-brave-web<br/>PID 1: supervises all of it"]
         subgraph service["headless-brave-web · Rust"]
             webui["web UI :80<br/>noVNC client"]
             sockify["WebSocket bridge<br/>/websockify"]
@@ -219,7 +219,7 @@ flowchart TB
     entry -. "starts" .-> service
 ```
 
-The screen is started by the entrypoint, not by anyone looking at it. That is
+The screen is started at boot, not by anyone looking at it. That is
 what keeps the browser — and therefore CDP — alive whether or not a viewer is
 attached.
 
@@ -237,8 +237,7 @@ so there is nothing on screen to fill in.
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Builds the Rust service, and the runtime image around Brave's dependencies and x11vnc |
-| `entrypoint.sh` | Installs the browser if it is missing, then starts the screen, the window manager, the browser, x11vnc and the service |
-| `src/` | `headless-brave-web` — web UI, VNC bridge, CDP proxy, noVNC assets |
+| `src/` | `headless-brave-web` — the whole container: the browser install, the screen, the window manager, x11vnc, the web UI, the VNC bridge, the CDP proxy and the noVNC assets |
 | `web/` | The page and its script |
 | `.devcontainer/` | Development container |
 | `docker-compose.yml` | Port mappings, profile volume and defaults |

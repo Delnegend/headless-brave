@@ -54,6 +54,20 @@ all now checked, with tests for the boundaries.
 `nursery` churns between Rust releases, so a toolchain bump can surface new
 findings. `rust-toolchain.toml` pins the version the image is built with.
 
+## One binary is the container
+
+`headless-brave-web` is PID 1. It installs the browser if the volume is empty,
+clears the locks a killed process left behind, starts Xvfb, fluxbox, the browser
+and x11vnc, serves the web UI itself, and if any of them exits it takes the
+whole container down so the restart policy can start a fresh one. There is no
+entrypoint script, and the configuration is parsed in one place rather than once
+in the script and once in the code.
+
+`SIGTERM` (a `docker stop`) is a clean path: children are asked to stop, given
+five seconds, and killed if they have not — long enough for the browser to close
+its profile, which is the difference between a clean shutdown and a "didn't shut
+down correctly" on the next start.
+
 ## What comes from where
 
 There is no compiler in the runtime image: everything arrives as Debian
@@ -63,17 +77,17 @@ packages, and the only thing built is the Rust service.
   `/usr/share/novnc` and served from there. It is the client half of the web
   UI, and it is the reason there is no `build.rs` fetching a pinned copy: the
   package is versioned, patched and upgraded by the distribution.
-- **Brave** is installed by the entrypoint onto a volume at `/opt`, so a new
+- **Brave** is installed at start onto a volume at `/opt`, so a new
   release costs a restart instead of a rebuild. The image keeps the shared
   libraries it links against and drops the payload again, which is the part
-  that moves. `BRAVE_UPGRADE=1` makes the entrypoint ask apt for something
+  that moves. `BRAVE_UPGRADE=1` makes the service ask apt for something
   newer on each start. The first boot needs the network; later ones do not.
 - **x11vnc** serves the screen. Two of its flags matter and are easy to undo by
   accident. `-shared` is what lets several people watch at once, and `-forever`
   is what keeps serving after the last one leaves — the browser is driven over
   CDP, not by whoever is looking.
 - **Xvfb** provides the screen. A restart that killed the previous one leaves
-  `/tmp/.X99-lock` behind and the next Xvfb refuses to start, so the entrypoint
+  `/tmp/.X99-lock` behind and the next Xvfb refuses to start, so the service
   clears it.
 
 ## Layout
@@ -85,7 +99,7 @@ packages, and the only thing built is the Rust service.
 | `src/web.rs` | routes, and the static file handler for the noVNC tree |
 | `src/cdp.rs` | finding the browser's DevTools WebSocket |
 | `web/` | the page and its script, embedded into the binary |
-| `entrypoint.sh` | the screen, the window manager, the browser, x11vnc, the service |
+| `src/supervise.rs` | PID 1: installs the browser, starts everything, takes the container down if one stops |
 | `clippy.toml` | test allowances for the strict lint set |
 
 ## Testing notes
