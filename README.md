@@ -15,6 +15,9 @@ from another viewer.
 - Shares that screen over VNC on port `5900`, to any number of clients
 - Serves the same screen to a browser on port `80`, through noVNC
 - Exposes CDP on port `9222` for Playwright, Puppeteer and friends
+- Runs the browser as an unprivileged user, with its own sandbox on, so a
+  compromised page is confined to the browser's renderer rather than the
+  container
 - Ships a Rust service (`headless-brave-web`) that serves the web UI, the
   noVNC client and both WebSocket bridges; there is no Python anywhere in the
   image
@@ -144,8 +147,10 @@ bind mount and point `BRAVE_PROFILE` at it:
       - /srv/headless-brave:/data
 ```
 
-The container runs as root, so the profile is used as it is found; a bind mount
-needs no pre-chowning.
+The profile belongs to the unprivileged user the browser runs as, and the
+service hands the whole tree over on every start — which is what makes a
+profile written by an earlier container that ran as root usable rather than
+half-broken. A bind mount needs no pre-chowning.
 
 One thing to know: a persisted profile keeps Chromium's single-instance lock,
 which names a process that no longer exists after a stop. The service clears

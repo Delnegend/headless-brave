@@ -29,6 +29,10 @@ ENV BRAVE_ROOT=/opt/brave.com
 ENV BRAVE_UPGRADE=0
 ENV RUST_LOG=headless_brave_web=info,warn
 
+# The browser runs as this user rather than as root: Chromium refuses to start
+# as root unless its sandbox is switched off, and the sandbox is worth keeping.
+RUN useradd --uid 1000 --user-group --create-home --shell /bin/bash headless
+
 # xvfb and x11vnc give the browser a desktop that can be watched without
 # touching it — any number of viewers share one read-mostly screen, and none of
 # them can take it away from the automation driving the browser over CDP.

@@ -26,6 +26,13 @@ use crate::{
     web,
 };
 
+/// The user the browser runs as, and its home. The image creates it; Chromium
+/// refuses to start as root unless `--no-sandbox` turns the sandbox off, so
+/// this is what lets the sandbox stay on.
+const BROWSER_UID: u32 = 1000;
+const BROWSER_GID: u32 = 1000;
+const BROWSER_HOME: &str = "/home/headless";
+
 /// How often the children are checked. A process dying is noticed within this,
 /// which is quicker than anyone can notice and keeps the children killable.
 const POLL: Duration = Duration::from_millis(200);
@@ -153,6 +160,9 @@ async fn prepare(config: &Config) -> Result<()> {
     set_mode(&screen_directory(), 0o1777)
         .context("cannot make the X socket directory usable by all")?;
 
+    // The volume arrives owned by root, and the browser is not root.
+    hand_over(&session.profile, "the browser profile").await?;
+
     // A restart that killed the previous Xvfb leaves its display locked, and
     // the next one refuses to start over a lock nobody is holding.
     let lock = format!("/tmp/.X{}-lock", session.display);
@@ -182,6 +192,63 @@ fn socket_path(session: &Session) -> PathBuf {
 async fn create(path: &Path, what: &str) -> Result<()> {
     if let Err(error) = tokio::fs::create_dir_all(path).await {
         bail!("cannot create {what} at {}: {error}", path.display());
+    }
+    Ok(())
+}
+
+/// Gives the profile to the browser's user.
+///
+/// Always, and the whole tree: a profile written by an earlier container that
+/// ran the browser as root is full of files this one can no longer write, and
+/// checking only the top of it would miss exactly that. A profile runs to
+/// thousands of files rather than millions, so the walk costs a fraction of a
+/// second and leaves the directory right even if a previous attempt stopped
+/// half way. Symlinks are left alone: following one could reach outside.
+async fn hand_over(path: &Path, what: &str) -> Result<()> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let owned = std::fs::metadata(path)
+        .is_ok_and(|meta| meta.uid() == BROWSER_UID && meta.gid() == BROWSER_GID);
+    info!(path = %path.display(), owned, "handing {what} to the browser user");
+
+    chown(path)?;
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(mut entries) = tokio::fs::read_dir(&directory).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let child = entry.path();
+            let Ok(meta) = tokio::fs::symlink_metadata(&child).await else {
+                continue;
+            };
+            if meta.is_symlink() {
+                continue;
+            }
+            chown(&child)?;
+            if meta.is_dir() {
+                pending.push(child);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Only the C library can change ownership to a user given by number.
+fn chown(path: &Path) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let owned = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .context("the path has a nul byte in it")?;
+    // SAFETY: `chown` on a path this process created or found inside the
+    // browser's own directory, with the uid and gid of the user the image
+    // creates for the browser.
+    if unsafe { libc::chown(owned.as_ptr(), BROWSER_UID, BROWSER_GID) } != 0 {
+        bail!(
+            "cannot give {} to uid {BROWSER_UID}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        );
     }
     Ok(())
 }
@@ -376,10 +443,12 @@ fn fluxbox(config: &Config) -> Command {
 
 fn brave(config: &Config) -> Command {
     let session = &config.session;
-    let mut command = Command::new(session.brave.root.join("brave").join("brave"));
+    let mut command = Command::new(session.brave.binary());
     command
         .env("DISPLAY", format!(":{}", session.display))
-        .arg("--no-sandbox")
+        .env("HOME", BROWSER_HOME)
+        .uid(BROWSER_UID)
+        .gid(BROWSER_GID)
         .arg("--disable-gpu")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")

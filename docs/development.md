@@ -82,6 +82,15 @@ packages, and the only thing built is the Rust service.
   libraries it links against and drops the payload again, which is the part
   that moves. `BRAVE_UPGRADE=1` makes the service ask apt for something
   newer on each start. The first boot needs the network; later ones do not.
+- **The browser** runs as the unprivileged `headless` user the image creates,
+  not as root: Chromium refuses to start as root unless `--no-sandbox` is
+  passed, and the sandbox is worth keeping for something browsing the open
+  web. Both sandbox backends are available here — user namespaces and the
+  setuid `chrome-sandbox` that ships with the package — so it does not depend
+  on either alone. The service gives the profile directory to that user on
+  every start, recursively: a profile written when the browser ran as root is
+  full of files the browser can no longer write, and looking only at the top
+  of the tree would miss exactly that.
 - **x11vnc** serves the screen. Two of its flags matter and are easy to undo by
   accident. `-shared` is what lets several people watch at once, and `-forever`
   is what keeps serving after the last one leaves — the browser is driven over
