@@ -24,12 +24,18 @@ services:
       - brave-data:/data
       - brave-opt:/opt
     # Interpolated, not hardcoded, so the documented overrides work:
-    # RESOLUTION=1280x720 BRAVE_UPGRADE=1 docker compose up -d.
+    # RESOLUTION=1280x720 VNC_PASSWORD=... docker compose up -d.
+    # There is no upgrade switch: the browser updates itself, on a timer.
     environment:
       - RESOLUTION=${RESOLUTION:-1920x1080}
       - VNC_PASSWORD=${VNC_PASSWORD:-headless}
-      - BRAVE_UPGRADE=${BRAVE_UPGRADE:-0}
     restart: unless-stopped
+    # journald rate-limits container output, and this service's log is drowned
+    # by the browser's own chatter — enough that the supervisor's lines were
+    # being dropped. Podman has no `local` driver; `k8s-file` is its file-based
+    # one, which rotates and keeps everything.
+    logging:
+      driver: k8s-file
 
 volumes:
   brave-data:
