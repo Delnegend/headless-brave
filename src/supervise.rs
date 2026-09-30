@@ -1,9 +1,10 @@
 //! Starting the container's moving parts and keeping them up.
 //!
-//! This is what the entrypoint script used to do. The browser, the screen, the
-//! window manager and the VNC server are all started here, and whichever one
-//! exits first brings the whole container down — a half-running desktop is
-//! worse than a container that restarts itself and comes back whole.
+//! This is the whole container: the browser install, the screen, the window
+//! manager, the VNC server, and the web service that lets a browser watch the
+//! screen and a tool drive it. Whichever part stops first brings the container
+//! down — a half-running desktop is worse than one that restarts and comes
+//! back whole.
 
 use std::{
     path::{Path, PathBuf},
@@ -26,26 +27,36 @@ use crate::{
     web,
 };
 
-/// The user the browser runs as, and its home. The image creates it; Chromium
-/// refuses to start as root unless `--no-sandbox` turns the sandbox off, so
-/// this is what lets the sandbox stay on.
-const BROWSER_UID: u32 = 1000;
-const BROWSER_GID: u32 = 1000;
-const BROWSER_HOME: &str = "/home/headless";
+/// The home the image gives the container's user, and a place inside it for
+/// per-run state that is not worth a volume.
+const HOME: &str = "/home/headless";
+const RUNTIME_DIR: &str = "/home/headless/.x11vnc";
+
+/// The browser's repository, as a `.list` file, and the key that signs it.
+/// Both are baked into the image.
+const SOURCES_LIST: &str = "/etc/apt/sources.list.d/brave-browser-release.list";
+const SIGNING_KEY: &str = "/usr/share/keyrings/brave-browser-archive-keyring.gpg";
 
 /// How often the children are checked. A process dying is noticed within this,
-/// which is quicker than anyone can notice and keeps the children killable.
+/// which is quicker than anyone can notice, and keeps the children killable.
 const POLL: Duration = Duration::from_millis(200);
 
-/// How long a child is given to exit on SIGTERM before it is killed. The browser
-/// gets the time to close its profile, which is the difference between a clean
-/// shutdown and a "didn't shut down correctly" on the next start.
+/// How long a child is given to exit on SIGTERM before it is killed. The
+/// browser gets the time to close its profile, which is the difference between
+/// a clean shutdown and a "didn't shut down correctly" on the next start.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 /// A process this supervisor started, and what to call it in a log line.
 struct Service {
     name: &'static str,
     child: Child,
+}
+
+enum Outcome {
+    /// Someone asked us to stop.
+    Stopped(&'static str),
+    /// Something we depend on is gone.
+    Failed(String),
 }
 
 /// Runs the container until something stops working, then stops everything.
@@ -82,7 +93,7 @@ pub async fn run(config: Config) -> Result<()> {
             _ = web_done.recv() => break Outcome::Failed("the web service".to_owned()),
             _ = terminate.recv() => break Outcome::Stopped("terminated"),
             _ = interrupt.recv() => break Outcome::Stopped("interrupted"),
-            () = tokio::time::sleep(POLL) => {}
+            () = sleep(POLL) => {}
         }
     };
 
@@ -99,13 +110,6 @@ pub async fn run(config: Config) -> Result<()> {
             Err(anyhow::anyhow!("{who} exited"))
         }
     }
-}
-
-enum Outcome {
-    /// Someone asked us to stop.
-    Stopped(&'static str),
-    /// Something we depend on is gone.
-    Failed(String),
 }
 
 fn first_to_exit(services: &mut [Service]) -> Option<String> {
@@ -155,26 +159,26 @@ async fn prepare(config: &Config) -> Result<()> {
     let session = &config.session;
 
     create(&session.profile, "the browser profile").await?;
-    create(Path::new("/run/x11vnc"), "the x11vnc run directory").await?;
+    create(Path::new(RUNTIME_DIR), "the x11vnc run directory").await?;
     create(&screen_directory(), "the X socket directory").await?;
-    set_mode(&screen_directory(), 0o1777)
-        .context("cannot make the X socket directory usable by all")?;
-
-    // The volume arrives owned by root, and the browser is not root.
-    hand_over(&session.profile, "the browser profile").await?;
+    make_shared(&screen_directory())?;
 
     // A restart that killed the previous Xvfb leaves its display locked, and
     // the next one refuses to start over a lock nobody is holding.
-    let lock = format!("/tmp/.X{}-lock", session.display);
-    remove(&lock);
+    remove(&format!("/tmp/.X{}-lock", session.display));
     remove(&socket_path(session).display().to_string());
 
     // A profile that outlives the container keeps Chromium's single-instance
     // lock, which names a process that no longer exists. Left alone, Brave
     // refuses to start and the container comes up with no browser at all.
     for name in ["Lock", "Cookie", "Socket"] {
-        let singleton = session.profile.join(format!("Singleton{name}"));
-        remove(&singleton.display().to_string());
+        remove(
+            &session
+                .profile
+                .join(format!("Singleton{name}"))
+                .display()
+                .to_string(),
+        );
     }
 
     install_brave(&session.brave).await?;
@@ -196,67 +200,23 @@ async fn create(path: &Path, what: &str) -> Result<()> {
     Ok(())
 }
 
-/// Gives the profile to the browser's user.
-///
-/// Always, and the whole tree: a profile written by an earlier container that
-/// ran the browser as root is full of files this one can no longer write, and
-/// checking only the top of it would miss exactly that. A profile runs to
-/// thousands of files rather than millions, so the walk costs a fraction of a
-/// second and leaves the directory right even if a previous attempt stopped
-/// half way. Symlinks are left alone: following one could reach outside.
-async fn hand_over(path: &Path, what: &str) -> Result<()> {
-    use std::os::unix::fs::MetadataExt as _;
+/// Makes a directory usable by everyone, but only when it is ours to change: an
+/// X server that cannot create its socket stops every client, including us.
+fn make_shared(path: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
-    let owned = std::fs::metadata(path)
-        .is_ok_and(|meta| meta.uid() == BROWSER_UID && meta.gid() == BROWSER_GID);
-    info!(path = %path.display(), owned, "handing {what} to the browser user");
-
-    chown(path)?;
-    let mut pending = vec![path.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        let Ok(mut entries) = tokio::fs::read_dir(&directory).await else {
-            continue;
-        };
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let child = entry.path();
-            let Ok(meta) = tokio::fs::symlink_metadata(&child).await else {
-                continue;
-            };
-            if meta.is_symlink() {
-                continue;
-            }
-            chown(&child)?;
-            if meta.is_dir() {
-                pending.push(child);
-            }
-        }
+    let Ok(meta) = std::fs::metadata(path) else {
+        return Ok(());
+    };
+    if meta.mode() & 0o777 == 0o777 {
+        return Ok(());
     }
-    Ok(())
-}
-
-/// Only the C library can change ownership to a user given by number.
-fn chown(path: &Path) -> Result<()> {
-    use std::os::unix::ffi::OsStrExt as _;
-
-    let owned = std::ffi::CString::new(path.as_os_str().as_bytes())
-        .context("the path has a nul byte in it")?;
-    // SAFETY: `chown` on a path this process created or found inside the
-    // browser's own directory, with the uid and gid of the user the image
-    // creates for the browser.
-    if unsafe { libc::chown(owned.as_ptr(), BROWSER_UID, BROWSER_GID) } != 0 {
-        bail!(
-            "cannot give {} to uid {BROWSER_UID}: {}",
-            path.display(),
-            std::io::Error::last_os_error()
-        );
+    if meta.uid() != std::process::id() {
+        debug!(path = %path.display(), "leaving the mode of a directory we do not own");
+        return Ok(());
     }
-    Ok(())
-}
-
-fn set_mode(path: &Path, mode: u32) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-        .context("cannot set the mode")
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777))
+        .with_context(|| format!("cannot make {} usable by all", path.display()))
 }
 
 fn remove(path: &str) {
@@ -283,29 +243,32 @@ async fn wait_for_screen(session: &Session) -> Result<()> {
 
 /// Installs the browser when the volume it lives on is empty, or checks for a
 /// newer release when asked to.
-///
-/// The image keeps the shared libraries it links against and dropped the
-/// payload, so this is one package: the first boot pays for it, and no rebuild
-/// is ever needed for a new release.
 async fn install_brave(brave: &Brave) -> Result<()> {
-    let installed = brave.binary().is_file();
-
-    if !installed {
-        info!(root = %brave.root.display(), "installing the browser");
-        unpack_brave().await?;
-    } else if brave.upgrade {
+    if brave.binary().is_file() {
+        if !brave.upgrade {
+            return Ok(());
+        }
         // Ask whether there is anything newer, and take it if so. Off by
         // default because it costs a download on every start.
         info!("checking for a newer browser");
-        refresh_index().await?;
-        if let Some(newest) = newest_brave_version().await? {
-            if Some(newest.as_str()) != Some(current_brave_version().await?.as_str()) {
-                unpack_brave().await?;
+        match newest_brave_version().await? {
+            Some(newest) if Some(&newest) == installed_brave_version(brave).as_ref() => {
+                info!(%newest, "already on the newest release");
+                return Ok(());
+            }
+            Some(newest) => info!(%newest, "a newer release is available"),
+            // The update is an optimisation, not a requirement: an index we
+            // could not fetch is no reason to reinstall on every start.
+            None => {
+                info!("the repository did not say; keeping what is installed");
+                return Ok(());
             }
         }
     } else {
-        return Ok(());
+        info!(root = %brave.root.display(), "installing the browser");
     }
+
+    unpack_brave(brave).await?;
 
     if !brave.binary().is_file() {
         bail!("the browser is not installed at {}", brave.root.display());
@@ -313,45 +276,100 @@ async fn install_brave(brave: &Brave) -> Result<()> {
     Ok(())
 }
 
-/// Fetches the package and hands it to dpkg.
+/// The version installed on the volume, recorded when it was unpacked: there
+/// is no dpkg database in here to ask.
+fn installed_brave_version(brave: &Brave) -> Option<String> {
+    std::fs::read_to_string(brave.root.join("VERSION"))
+        .ok()
+        .map(|version| version.trim().to_owned())
+}
+
+/// Fetches the package and unpacks it over the install directory.
 ///
-/// Not `apt-get install`: with the package recorded as installed and its
-/// payload deleted from the image, apt's plan for reinstalling it is not
-/// something to rely on. dpkg unpacks what it is given, and its dependencies
-/// are already in the image from the build.
-async fn unpack_brave() -> Result<()> {
-    refresh_index().await?;
+/// No root, and deliberately not `apt-get install`: the container runs
+/// unprivileged, the image records the package as installed with its payload
+/// deleted, and apt's plan for reinstalling it is not something to rely on.
+/// `apt-get download` only needs somewhere writable to keep its index, and
+/// `dpkg-deb --extract` is an unpack, not an install.
+async fn unpack_brave(brave: &Brave) -> Result<()> {
+    let work = std::env::temp_dir().join("headless-brave");
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    for directory in ["apt/lists/partial", "package"] {
+        create(&work.join(directory), "the work directory").await?;
+    }
 
-    let download = std::env::temp_dir().join("brave");
-    let _ = tokio::fs::remove_dir_all(&download).await;
-    create(&download, "the download directory").await?;
+    let package = fetch_brave(&work).await?;
 
-    command("apt-get", &["download", "brave-browser"], Some(&download)).await?;
-    let package = find_package(&download)
+    // The install directory is usually a volume, which is a different
+    // filesystem from the temporary directory and so cannot be renamed onto.
+    // Unpacking and moving both happen inside it instead.
+    let parent = brave
+        .root
+        .parent()
+        .with_context(|| format!("{} has no directory to stage in", brave.root.display()))?
+        .to_path_buf();
+    let staging = parent.join(".headless-brave-staging");
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    create(&staging, "the staging directory").await?;
+    capture(
+        Command::new("dpkg-deb")
+            .arg("--extract")
+            .arg(&package)
+            .arg(&staging),
+        "dpkg-deb --extract",
+    )
+    .await?;
+
+    // The package unpacks to ./opt/brave.com/...; only that subtree is ours to
+    // keep, because the libraries it links against are already in the image.
+    let unpacked = staging.join("opt").join("brave.com");
+    if !unpacked.join("brave").join("brave").is_file() {
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+        bail!("the browser is not in the package");
+    }
+    let target = brave.root.clone();
+    let _ = tokio::fs::remove_dir_all(&target).await;
+    if let Err(error) = tokio::fs::rename(&unpacked, &target).await {
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+        return Err(error)
+            .with_context(|| format!("cannot move the browser into {}", target.display()));
+    }
+    tokio::fs::write(target.join("VERSION"), package_version(&package))
         .await
-        .with_context(|| "the browser package could not be fetched")?;
-    command("dpkg", &["--install", &package.to_string_lossy()], None).await?;
+        .context("cannot record the version that was installed")?;
 
-    // The lists are large and only useful for this one call.
-    let _ = tokio::fs::remove_dir_all("/var/lib/apt/lists").await;
-    let _ = tokio::fs::remove_dir_all(&download).await;
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    let _ = tokio::fs::remove_dir_all(&work).await;
     Ok(())
 }
 
-async fn refresh_index() -> Result<()> {
-    command(
-        "apt-get",
-        &["update", "-y", "--no-install-recommends"],
-        None,
+/// Downloads the browser package, refreshing an index that is ours to write.
+async fn fetch_brave(work: &Path) -> Result<PathBuf> {
+    let package = work.join("package");
+    capture(
+        apt("apt-get", work).current_dir(&package).arg("update"),
+        "apt-get update",
     )
-    .await
-    .map(|_| ())
+    .await?;
+    capture(
+        apt("apt-get", work)
+            .current_dir(&package)
+            .arg("download")
+            .arg("brave-browser"),
+        "apt-get download",
+    )
+    .await?;
+    find_package(&package)
+        .await
+        .with_context(|| "the browser package could not be fetched")
 }
 
 /// Whatever apt left in the download directory: it names the file it saved.
 async fn find_package(directory: &Path) -> Option<PathBuf> {
     let mut paths = Vec::new();
-    let mut entries = tokio::fs::read_dir(directory).await.ok()?;
+    let Ok(mut entries) = tokio::fs::read_dir(directory).await else {
+        return None;
+    };
     while let Ok(Some(entry)) = entries.next_entry().await {
         paths.push(entry.path());
     }
@@ -362,51 +380,88 @@ async fn find_package(directory: &Path) -> Option<PathBuf> {
     })
 }
 
-async fn current_brave_version() -> Result<String> {
-    let status = Command::new("dpkg-query")
-        .args(["-f", "${Version}", "-W", "brave-browser"])
-        .output()
-        .await
-        .context("cannot ask dpkg what is installed")?;
-    let version = String::from_utf8_lossy(&status.stdout).trim().to_owned();
-    if version.is_empty() {
-        bail!("the image does not record a browser version");
-    }
-    Ok(version)
+/// The version out of a package filename, e.g. `brave-browser_1.2.3_amd64.deb`.
+fn package_version(package: &Path) -> String {
+    package
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .and_then(|name| {
+            // brave-browser_1.2.3_amd64.deb: the version is the middle field.
+            let mut fields = name.trim_end_matches(".deb").splitn(3, '_');
+            fields.next()?;
+            fields.next().map(str::to_owned)
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
-/// The newest version the repository offers, if it will say.
+/// An apt tool pointed at an index of its own, because the one in the image is
+/// not ours to write.
+fn apt(program: &str, work: &Path) -> Command {
+    let mut apt = Command::new(program);
+    apt.arg("-qq");
+    for option in [
+        format!("Dir::State={}", work.join("apt").display()),
+        format!("Dir::Cache={}", work.join("apt").display()),
+        format!("Dir::State::lists={}", work.join("apt/lists").display()),
+        format!("Dir::Etc::sourcelist={SOURCES_LIST}"),
+        "Dir::Etc::sourceparts=/dev/null".to_owned(),
+        format!("Dir::Etc::trusted={SIGNING_KEY}"),
+        "Dir::Etc::trustedparts=/dev/null".to_owned(),
+    ] {
+        apt.arg("-o").arg(option);
+    }
+    apt
+}
+
+/// The newest version the repository offers, if it will say. Its own copy of
+/// the index, for the same reason the install has one.
 async fn newest_brave_version() -> Result<Option<String>> {
-    let Ok(policy) = command("apt-cache", &["policy", "brave-browser"], None).await else {
+    let work = std::env::temp_dir().join("headless-brave-check");
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    if create(&work.join("apt/lists/partial"), "the work directory")
+        .await
+        .is_err()
+    {
         return Ok(None);
-    };
-    Ok(policy
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("Candidate: "))
-        .map(str::to_owned))
+    }
+    if capture(apt("apt-get", &work).arg("update"), "apt-get update")
+        .await
+        .is_err()
+    {
+        let _ = tokio::fs::remove_dir_all(&work).await;
+        return Ok(None);
+    }
+    let policy = capture(
+        apt("apt-cache", &work).arg("policy").arg("brave-browser"),
+        "apt-cache policy",
+    )
+    .await
+    .ok();
+    let _ = tokio::fs::remove_dir_all(&work).await;
+
+    Ok(policy.and_then(|policy| {
+        policy
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("Candidate: "))
+            .map(str::to_owned)
+    }))
 }
 
-/// Runs a command, returning its standard output, and logs the whole exchange
-/// so a failed install says why.
-async fn command(program: &str, args: &[&str], directory: Option<&Path>) -> Result<String> {
-    let mut command = Command::new(program);
-    command.args(args);
-    if let Some(directory) = directory {
-        command.current_dir(directory);
-    }
+/// Runs a command, returns what it printed, and logs the whole exchange so a
+/// failed install says why.
+async fn capture(command: &mut Command, what: &str) -> Result<String> {
     let output = command
         .output()
         .await
-        .with_context(|| format!("cannot run {program}"))?;
+        .with_context(|| format!("cannot run {what}"))?;
     debug!(
-        %program,
-        args = ?args,
+        %what,
         status = %output.status,
         "{}", String::from_utf8_lossy(&output.stdout)
     );
     if !output.status.success() {
         bail!(
-            "{program} {args:?} failed with {}: {}",
+            "{what} failed with {}: {}",
             output.status,
             String::from_utf8_lossy(&output.stderr)
         );
@@ -446,9 +501,7 @@ fn brave(config: &Config) -> Command {
     let mut command = Command::new(session.brave.binary());
     command
         .env("DISPLAY", format!(":{}", session.display))
-        .env("HOME", BROWSER_HOME)
-        .uid(BROWSER_UID)
-        .gid(BROWSER_GID)
+        .env("HOME", HOME)
         .arg("--disable-gpu")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
@@ -468,12 +521,6 @@ fn brave(config: &Config) -> Command {
     command
 }
 
-/// The web service serves until the process goes away, which is what stopping
-/// the container means. Nothing shuts it down from inside.
-async fn until_the_end() {
-    std::future::pending::<()>().await;
-}
-
 /// The browser's `DevTools` port, read back out of the endpoint we were given
 /// so that the two cannot drift apart.
 fn cdp_port(config: &Config) -> u16 {
@@ -487,20 +534,19 @@ fn cdp_port(config: &Config) -> u16 {
 }
 
 async fn x11vnc(config: &Config) -> Result<Service> {
-    let password_file = Path::new("/run/x11vnc/passwd");
-    create(Path::new("/run/x11vnc"), "the x11vnc run directory").await?;
+    let password_file = Path::new(RUNTIME_DIR).join("passwd");
     // x11vnc only writes a password file on its own; the server then reads it.
-    let status = Command::new("x11vnc")
-        .arg("-quiet")
-        .arg("-storepasswd")
-        .arg(&config.vnc.password)
-        .arg(password_file)
-        .status()
-        .await
-        .context("cannot store the VNC password")?;
-    if !status.success() {
-        bail!("x11vnc could not store the password: {status}");
-    }
+    create(Path::new(RUNTIME_DIR), "the x11vnc run directory").await?;
+    let file = password_file.display().to_string();
+    capture(
+        Command::new("x11vnc")
+            .arg("-quiet")
+            .arg("-storepasswd")
+            .arg(&config.vnc.password)
+            .arg(&file),
+        "x11vnc -storepasswd",
+    )
+    .await?;
 
     let mut command = Command::new("x11vnc");
     command
@@ -508,9 +554,6 @@ async fn x11vnc(config: &Config) -> Result<Service> {
         .arg(format!(":{}", config.session.display))
         .arg("-rfbport")
         .arg(config.vnc.port.to_string())
-        // No -localhost: the compose file already publishes this on the
-        // loopback, and a published port is forwarded to the container's own
-        // address, which x11vnc would refuse if told to listen on loopback only.
         .arg("-rfbauth")
         .arg(password_file)
         // -shared: every viewer sees the same screen and none of them owns it.
@@ -524,7 +567,7 @@ async fn x11vnc(config: &Config) -> Result<Service> {
     start("x11vnc", command)
 }
 
-/// Binds the two listeners and serves until the stop signal fires.
+/// Binds the two listeners and serves until the process goes away.
 async fn serve(config: Arc<Config>) -> Result<impl Future<Output = Result<()>>> {
     use tokio::net::TcpListener;
 
@@ -550,4 +593,30 @@ async fn serve(config: Arc<Config>) -> Result<impl Future<Output = Result<()>>> 
         )?;
         Ok(())
     })
+}
+
+/// The web service serves until the process goes away, which is what stopping
+/// the container means. Nothing shuts it down from inside.
+async fn until_the_end() {
+    std::future::pending::<()>().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::package_version;
+
+    #[test]
+    fn reads_the_version_out_of_a_package_name() {
+        assert_eq!(
+            package_version(Path::new("/tmp/brave-browser_1.2.3_amd64.deb")),
+            "1.2.3"
+        );
+    }
+
+    #[test]
+    fn copes_with_a_name_it_does_not_recognise() {
+        assert_eq!(package_version(Path::new("brave.deb")), "unknown");
+    }
 }

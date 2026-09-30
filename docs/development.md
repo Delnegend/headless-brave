@@ -63,6 +63,12 @@ whole container down so the restart policy can start a fresh one. There is no
 entrypoint script, and the configuration is parsed in one place rather than once
 in the script and once in the code.
 
+Nothing in the container runs as root. The image creates a `headless` user and
+the service is it, so the install, the screen, the browser and both servers all
+belong to the same unprivileged owner and nothing has to be given away at
+runtime. The volumes it works on are created by the image for the same reason:
+a volume inherits the ownership of the directory it is mounted over.
+
 `SIGTERM` (a `docker stop`) is a clean path: children are asked to stop, given
 five seconds, and killed if they have not — long enough for the browser to close
 its profile, which is the difference between a clean shutdown and a "didn't shut
@@ -82,15 +88,19 @@ packages, and the only thing built is the Rust service.
   libraries it links against and drops the payload again, which is the part
   that moves. `BRAVE_UPGRADE=1` makes the service ask apt for something
   newer on each start. The first boot needs the network; later ones do not.
+  The install is `apt-get download` plus `dpkg-deb --extract` rather than
+  `apt-get install`, because there is no root here and no dpkg database in the
+  container to reinstall into. apt is pointed at an index under the temporary
+  directory, since the one in the image is not ours to write, and the package
+  is unpacked and moved *inside* the volume: a rename cannot cross filesystems,
+  and `/tmp` is not on the volume. The version it unpacked is recorded in
+  `/opt/brave.com/VERSION`, which is what `BRAVE_UPGRADE=1` compares against.
 - **The browser** runs as the unprivileged `headless` user the image creates,
-  not as root: Chromium refuses to start as root unless `--no-sandbox` is
-  passed, and the sandbox is worth keeping for something browsing the open
-  web. Both sandbox backends are available here — user namespaces and the
-  setuid `chrome-sandbox` that ships with the package — so it does not depend
-  on either alone. The service gives the profile directory to that user on
-  every start, recursively: a profile written when the browser ran as root is
-  full of files the browser can no longer write, and looking only at the top
-  of the tree would miss exactly that.
+  because Chromium refuses to start as root unless `--no-sandbox` is passed,
+  and the sandbox is worth keeping for something browsing the open web. The
+  flag is not passed: both sandbox backends are available here — user
+  namespaces and the setuid `chrome-sandbox` that ships with the package — so
+  it does not depend on either alone.
 - **x11vnc** serves the screen. Two of its flags matter and are easy to undo by
   accident. `-shared` is what lets several people watch at once, and `-forever`
   is what keeps serving after the last one leaves — the browser is driven over

@@ -147,10 +147,17 @@ bind mount and point `BRAVE_PROFILE` at it:
       - /srv/headless-brave:/data
 ```
 
-The profile belongs to the unprivileged user the browser runs as, and the
-service hands the whole tree over on every start — which is what makes a
-profile written by an earlier container that ran as root usable rather than
-half-broken. A bind mount needs no pre-chowning.
+Nothing in the container runs as root, so nothing is handed over at start: the
+profile is written by, and belongs to, uid 1000 from the first boot. A bind
+mount therefore has to be that user's, or the browser comes up with a profile
+it cannot write:
+
+```bash
+install -d -o 1000 -g 1000 /srv/headless-brave
+```
+
+The named volumes in `compose.yaml` need none of this — the image creates the
+directories they are mounted over, and a volume inherits their ownership.
 
 One thing to know: a persisted profile keeps Chromium's single-instance lock,
 which names a process that no longer exists after a stop. The service clears

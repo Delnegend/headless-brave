@@ -6,14 +6,14 @@ services:
     container_name: brave-headless
     shm_size: 2gb
     ports:
-      # Port 80 serves the web UI, port 5900 the same desktop for a native VNC
+      # Port 8000 serves the web UI, port 5900 the same desktop for a native VNC
       # client, and port 9222 the CDP endpoint automation tools attach to. The
       # VNC port asks for a password; the other two do not authenticate the
       # *caller* at all, so publish them on loopback and put a reverse proxy in
       # front if you need them off-host.
       # Use 127.0.0.1, not localhost: podman forwards the IPv4 loopback only,
       # while localhost usually resolves to ::1 first.
-      - "127.0.0.1:8000:80"
+      - "127.0.0.1:8000:8000"
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:9222:9222"
     # Everything the browser remembers — cookies, logins, history, extensions —
@@ -23,9 +23,12 @@ services:
     volumes:
       - brave-data:/data
       - brave-opt:/opt
+    # Interpolated, not hardcoded, so the documented overrides work:
+    # RESOLUTION=1280x720 BRAVE_UPGRADE=1 docker compose up -d.
     environment:
-      - RESOLUTION=1920x1080
-      - VNC_PASSWORD=headless
+      - RESOLUTION=${RESOLUTION:-1920x1080}
+      - VNC_PASSWORD=${VNC_PASSWORD:-headless}
+      - BRAVE_UPGRADE=${BRAVE_UPGRADE:-0}
     restart: unless-stopped
 
 volumes:

@@ -22,16 +22,21 @@ ENV RESOLUTION=1920x1080
 ENV VNC_DISPLAY=:99
 ENV VNC_PASSWORD=headless
 ENV VNC_PORT=5900
-ENV WEB_PORT=80
+ENV WEB_PORT=8000
 ENV CDP_PORT=9222
 ENV BRAVE_PROFILE=/data/profile
 ENV BRAVE_ROOT=/opt/brave.com
 ENV BRAVE_UPGRADE=0
 ENV RUST_LOG=headless_brave_web=info,warn
 
-# The browser runs as this user rather than as root: Chromium refuses to start
-# as root unless its sandbox is switched off, and the sandbox is worth keeping.
-RUN useradd --uid 1000 --user-group --create-home --shell /bin/bash headless
+# The container runs as this user, not root. Chromium refuses to start as root
+# unless its sandbox is switched off, and the sandbox is worth keeping for
+# something browsing the open web. The two mount points are created here and
+# handed over so that a fresh named volume inherits the ownership rather than
+# arriving root-owned and unusable.
+RUN useradd --uid 1000 --user-group --create-home --shell /bin/bash headless \
+    && mkdir -p /data /opt \
+    && chown headless:headless /data /opt
 
 # xvfb and x11vnc give the browser a desktop that can be watched without
 # touching it — any number of viewers share one read-mostly screen, and none of
@@ -58,9 +63,13 @@ RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/brave-browser-archive-ke
 
 COPY --from=build /src/target/release/headless-brave-web /usr/local/bin/headless-brave-web
 
-EXPOSE 80 5900 9222
+EXPOSE 8000 5900 9222
 
-# The binary is the whole container: it starts the screen, the window manager,
-# the browser, x11vnc and the web service, and takes the container down if any
-# of them stops.
+# Nothing in the container needs to be root, so nothing runs as root. Binding a
+# privileged port is not available, which is why WEB_PORT is not 80.
+USER headless
+
+# The binary is the whole container: it installs the browser, starts the screen,
+# the window manager, the browser, x11vnc and the web service, and takes the
+# container down if any of them stops.
 CMD ["/usr/local/bin/headless-brave-web"]
