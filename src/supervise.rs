@@ -192,6 +192,30 @@ async fn prepare(config: &Config) -> Result<()> {
     }
 
     install_brave(&session.brave).await?;
+    check_sandbox()?;
+    Ok(())
+}
+
+/// Says up front whether the browser will be able to sandbox itself, because
+/// the alternative is finding out from a Chromium FATAL four lines into a log
+/// full of window manager.
+///
+/// The user-namespace sandbox is the only one that can work here: the SUID
+/// helper cannot be owned by root in an unprivileged install. Without
+/// namespaces the browser will not start, so this is worth saying either way.
+fn check_sandbox() -> Result<()> {
+    let namespaces = std::fs::read_to_string("/proc/sys/user/max_user_namespaces")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or_default();
+    if namespaces == 0 {
+        bail!(
+            "unprivileged user namespaces are disabled on this host, and the browser \
+             cannot fall back to the SUID sandbox because an unprivileged install \
+             cannot make its helper root-owned. Chromium would refuse to start."
+        );
+    }
+    debug!(namespaces, "the browser can use the namespace sandbox");
     Ok(())
 }
 
@@ -273,6 +297,37 @@ fn installed_brave_version(brave: &Brave) -> Option<String> {
         .map(|version| version.trim().to_owned())
 }
 
+/// Takes the setuid bit off Chromium's SUID sandbox helper, which is
+/// installed setuid root and cannot be that here: `dpkg-deb --extract` run as
+/// an unprivileged user leaves it owned by us, and the volume it lands on may
+/// be mounted `nosuid` besides.
+///
+/// Leaving it alone is worse than useless. Chromium tries the SUID sandbox
+/// before the user-namespace one, finds a setuid binary, and then refuses to
+/// start because it is not owned by root - fatally, without falling back. On
+/// any host that restricts unprivileged user namespaces, which includes
+/// Ubuntu 24.04 and GitHub's runners, that is the difference between a
+/// container that runs and one that exits on startup. Without the setuid bit
+/// the file is ignored and the namespace sandbox - the one that can work here -
+/// is used instead.
+fn unmake_setuid(root: &Path) {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    let helper = root.join("brave").join("chrome-sandbox");
+    let Ok(metadata) = std::fs::metadata(&helper) else {
+        return;
+    };
+    if metadata.mode() & 0o4000 == 0 {
+        return;
+    }
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(permissions.mode() & !0o4000);
+    match std::fs::set_permissions(&helper, permissions) {
+        Ok(()) => info!("the SUID sandbox helper is unusable here; using namespaces instead"),
+        Err(error) => warn!(%error, "could not take the setuid bit off the sandbox helper"),
+    }
+}
+
 /// Unpacks a downloaded package over the install directory.
 ///
 /// No root, and deliberately not `apt-get install`: the container runs
@@ -320,6 +375,7 @@ async fn apply_package(brave: &Brave, package: &Path) -> Result<()> {
     tokio::fs::write(target.join("VERSION"), package_version(package))
         .await
         .context("cannot record the version that was installed")?;
+    unmake_setuid(&target);
 
     let _ = tokio::fs::remove_dir_all(&staging).await;
     Ok(())
