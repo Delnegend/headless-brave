@@ -105,11 +105,15 @@ jobs:
           docker ps -a --filter name=smoke --format '{{.Status}}'
           echo "=== exit code ==="
           docker inspect smoke --format '{{.State.ExitCode}} {{.State.Error}}' || true
-          echo "=== last 40 lines ==="
-          # Fluxbox writes a line per failed preference read, so a short tail is
-          # all window manager and none of the reason. The supervisor exits last
-          # but its children flush what they have buffered after it.
-          docker logs --tail=300 smoke 2>&1 | grep -viE "Failed to read|Setting default value" || true
+          echo "=== the supervisor's own log, and anything that looks fatal ==="
+          # The whole log, not a tail: the supervisor announces itself before it
+          # starts anything, so its first line is at the head, and fluxbox then
+          # buries it under a line per preference it could not read.
+          docker logs smoke > /tmp/smoke.log 2>&1 || true
+          grep -iE "headless-brave|error|fatal|sandbox|namespace|denied|exited" /tmp/smoke.log \
+            | grep -viE "Failed to read|Setting default value" | head -40 || true
+          echo "=== first 25 lines, unfiltered ==="
+          head -25 /tmp/smoke.log || true
 
       - name: Clean up
         if: always()
