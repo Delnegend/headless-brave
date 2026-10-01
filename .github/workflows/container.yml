@@ -106,7 +106,10 @@ jobs:
           echo "=== exit code ==="
           docker inspect smoke --format '{{.State.ExitCode}} {{.State.Error}}' || true
           echo "=== last 40 lines ==="
-          docker logs --tail=40 smoke 2>&1 || true
+          # Fluxbox writes a line per failed preference read, so a short tail is
+          # all window manager and none of the reason. The supervisor exits last
+          # but its children flush what they have buffered after it.
+          docker logs --tail=300 smoke 2>&1 | grep -viE "Failed to read|Setting default value" || true
 
       - name: Clean up
         if: always()
