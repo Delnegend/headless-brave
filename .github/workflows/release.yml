@@ -14,6 +14,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Lowercase on purpose: buildx normalises the name on push, so `Delnegend`
+  # is what the build logs show and `delnegend` is what anyone can pull.
+  IMAGE: ghcr.io/delnegend/headless-brave
+
 jobs:
   # What is being released, decided once and handed to everything else.
   version:
@@ -55,6 +60,11 @@ jobs:
     needs: version
     if: needs.version.outputs.tag != ''
     runs-on: ubuntu-latest
+    outputs:
+      # The tag as it was actually pushed - `0.2.0`, not `v0.2.0`. The semver
+      # pattern strips the v, so the notes must be built from this rather than
+      # from the git tag or they name a tag nobody can pull.
+      tag: ${{ steps.meta.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -74,7 +84,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}
             type=raw,value=latest
@@ -109,7 +119,8 @@ jobs:
             Container image:
 
             ```
-            podman pull ghcr.io/${{ github.repository }}:${{ needs.version.outputs.tag }}
+            podman pull ${{ env.IMAGE }}:${{ needs.image.outputs.tag }}
             ```
 
-            Or `latest` for the most recent release.
+            Or `latest` for the most recent release. The git tag `v${{ needs.image.outputs.tag }}`
+            is the same image, named the way git wants it.
