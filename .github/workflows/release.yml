@@ -39,8 +39,13 @@ jobs:
       # Notes only. What this project ships is a container image, built by
       # `docker compose build`; there is no binary or package to attach, and a
       # release that uploads an artifact nobody consumes is worse than none.
+      # The guard tests the version, not `bump`. With `noNewCommitBehavior:
+      # silent` the action exits before it computes anything and sets *no*
+      # outputs at all, so `bump` is empty rather than "none" — comparing it
+      # against "none" passes on an empty string and hands this step a blank
+      # tag. `next` is set if and only if there is a release to make.
       - name: Publish Consolidated Release
-        if: steps.semver.outputs.bump != 'none'
+        if: steps.semver.outputs.next != ''
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.semver.outputs.next }}
