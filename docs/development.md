@@ -28,25 +28,6 @@ podman run --rm --shm-size=2g \
 
 `--shm-size` is not optional: Chromium is unhappy on Docker's 64 MB default.
 
-### Lints
-
-`[lints.clippy]` in `Cargo.toml` turns on `pedantic` and `nursery` and denies
-everything that can abort at runtime — `unwrap_used`, `expect_used`,
-`indexing_slicing`, `arithmetic_side_effects`, `panic`, `unreachable`, `todo`,
-`string_slice`, `exit`, `as_conversions`. The set follows
-[this post](https://www.namtao.com/rust/); `clippy.toml` allows the assertion
-lints inside tests.
-
-A WebSocket bridge in a container has no user to report a panic to: the task
-dies, the desktop keeps running with no way in, and the only trace is one line
-in `docker logs`. Adopting the set found three such deaths — a close reason cut
-on a byte count that can land inside a character, a percent-decoder indexing
-past the end of its input, and a static path that could climb out of the noVNC
-tree — all now checked, with tests for the boundaries.
-
-`nursery` churns between Rust releases, so a toolchain bump surfaces new
-findings. `rust-toolchain.toml` pins the version the image is built with.
-
 ## One binary is the container
 
 `headless-brave-web` is PID 1. It installs the browser if the volume is empty,
@@ -121,7 +102,7 @@ Staging is inside the volume because `rename()` cannot cross filesystems.
 | `compose.yaml` | ports, volumes, log driver |
 | `justfile` | `just check`, which is the CI gate |
 | `scripts/smoke.sh` | functional check against a running container |
-| `clippy.toml` | test allowances for the strict lint set |
+| `clippy.toml` | lets the assertion lints run inside tests |
 
 ## Testing notes
 
