@@ -40,10 +40,20 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Start it
-        # --shm-size matches the compose file. Chromium is unhappy on Docker's
+        # --shm-size matches the compose file: Chromium is unhappy on Docker's
         # 64 MB default, and a bare `docker run` without it is not what we ship.
+        #
+        # --security-opt apparmor=unconfined is about the runner, not the
+        # image. GitHub's ubuntu-latest ships a profile that forbids
+        # unprivileged user namespaces, which is the only sandbox this
+        # container can use - an unprivileged install cannot make Chromium's
+        # SUID helper root-owned. So under the runner's default policy the
+        # browser cannot sandbox at all and exits with "No usable sandbox!",
+        # which says nothing about the image. Unconfining tests the container
+        # we ship rather than the policy of the machine testing it.
         run: >
           docker run -d --name smoke --shm-size=2g
+          --security-opt apparmor=unconfined
           -p 127.0.0.1:18000:8000 -p 127.0.0.1:19222:9222
           headless-brave:smoke
 

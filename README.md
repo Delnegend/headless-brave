@@ -253,6 +253,15 @@ the profile is unusable for a different reason — most often it belongs to
 root, because it was created by an older container. A bind mount has to be
 uid 1000: `install -d -o 1000 -g 1000 /path/to/profile`.
 
+**The container exits with `No usable sandbox!`.** The browser needs either
+unprivileged user namespaces or its SUID sandbox helper, and only the first is
+available here: the browser is installed unprivileged, so nothing can make that
+helper root-owned. A host that forbids unprivileged user namespaces — Ubuntu
+24.04's AppArmor policy does by default, and so do GitHub's runners — cannot run
+this container, and the service says so in one line at startup rather than
+leaving you to read a Chromium stack trace. The fix belongs on the host, not in
+the image.
+
 **The VNC client connects and shows nothing useful.** Check `VNC_PASSWORD` — it
 is generated at start and the web UI reads it from `/api/config`. A password
 with shell metacharacters is not the problem; an empty one is refused outright.
