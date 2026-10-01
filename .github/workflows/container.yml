@@ -1,0 +1,100 @@
+name: Container
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+  # Weekly, because the things this cannot catch still move under our feet: a
+  # distribution package security update changes the base image without a commit.
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  # `just check` proves the Rust builds and its pure functions behave. Nothing
+  # proves the container runs, which is where every interesting failure lives:
+  # a missing X package, an Xvfb that will not start, a browser that will not
+  # install. This job is the one that would have noticed.
+  smoke:
+    name: Smoke (image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: headless-brave:smoke
+          # Same cache the release build writes, so this is cheap on the runs
+          # that follow a real change.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start it
+        run: docker run -d --name smoke -p 127.0.0.1:18000:8000 -p 127.0.0.1:19222:9222 headless-brave:smoke
+
+      - name: Show the log if it never comes up
+        if: failure()
+        run: docker logs smoke || true
+
+      - name: The web service answers
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18000/healthz >/dev/null 2>&1; then
+              echo "healthz ok"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "the web service never answered" >&2
+          exit 1
+
+      - name: The web UI is served
+        run: |
+          curl -fsS http://127.0.0.1:18000/ | grep -qi brave
+          # A noVNC asset, so a broken NOVNC_DIR or a path-traversal guard that
+          # rejects everything shows up here rather than in a browser tab.
+          curl -fsS http://127.0.0.1:18000/novnc/core/rfb.js >/dev/null
+
+      - name: The browser installed and is running
+        run: |
+          # The install ran unprivileged and recorded what it unpacked.
+          docker exec smoke sh -c 'test -s /opt/brave.com/VERSION && cat /opt/brave.com/VERSION'
+          docker exec smoke pgrep -f 'brave/brave --disable-gpu'
+
+      - name: The sandbox is on
+        run: |
+          # A browser that cannot sandbox will not start as this user at all,
+          # so reaching this line is most of the check; the flag is the part
+          # that could be reintroduced silently.
+          flags=$(docker exec smoke sh -c \
+            "tr '\\0' '\\n' < /proc/\$(pgrep -f remote-debugging-port | head -1)/cmdline | grep -c '^--no-sandbox$'")
+          test "$flags" = "0"
+
+      - name: Nothing runs as root
+        run: |
+          # The invariant the whole container is built around.
+          test "$(docker exec smoke sh -c "ps -eo user= | grep -c '^root'")" = "0"
+          test "$(docker exec smoke ps -o user= -p 1)" = "headless"
+
+      - name: The CDP bridge is listening
+        run: |
+          # It speaks WebSocket, so this is not a request that can succeed -
+          # only one that must not be refused. A connection refused means the
+          # bridge never bound, which is the failure worth catching.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:19222/ || true)
+          test -n "$code"
+          echo "answered with $code"
+
+      - name: Clean up
+        if: always()
+        run: docker rm -f smoke || true

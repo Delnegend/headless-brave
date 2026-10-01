@@ -89,7 +89,9 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self> {
         let bind = string("BIND_ADDR", "0.0.0.0");
-        let web_port = number("WEB_PORT", 80)?;
+        // 8000, not 80: the process is unprivileged, so it cannot bind a
+        // privileged port, and the image says the same thing.
+        let web_port = number("WEB_PORT", 8000)?;
         let cdp_port = number("CDP_PORT", 9222)?;
 
         let vnc = VncTarget {

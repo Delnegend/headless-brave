@@ -24,9 +24,22 @@ from another viewer.
 
 ## Quick start
 
+Pull the published image, built weekly from `main`:
+
+```bash
+podman run -d --name headless-brave \
+  -p 127.0.0.1:8000:8000 -p 127.0.0.1:5900:5900 -p 127.0.0.1:9222:9222 \
+  -v headless-brave-data:/data -v headless-brave-opt:/opt \
+  ghcr.io/delnegend/headless-brave:latest
+```
+
+Or build it yourself, which is the same thing from source:
+
 ```bash
 docker compose up -d --build
 ```
+
+Both give you a container that keeps its own browser up to date.
 
 The ports are published on the IPv4 loopback only. `localhost` resolves to
 `::1` first on many systems, and podman does not forward IPv6 loopback, so
@@ -186,18 +199,67 @@ agent was doing.
 | `VNC_DISPLAY` | `:99` | X display the browser runs on |
 | `VNC_PORT` | `5900` | Port x11vnc serves the screen on |
 | `VNC_PASSWORD` | `headless` | VNC password, stored on every boot |
-| `WEB_PORT` | `80` | Port for the web UI and its bridge |
+| `BIND_ADDR` | `0.0.0.0` | Address the web UI and CDP proxy listen on. `127.0.0.1` keeps them inside the container's network namespace |
+| `WEB_PORT` | `8000` | Port for the web UI and its bridge |
+| `VNC_HOST` | `127.0.0.1` | Address x11vnc is reached on, by the web UI's bridge inside the container |
 | `CDP_PORT` | `9222` | Port for the CDP proxy |
 | `BROWSER_CDP_URL` | `http://127.0.0.1:9224/json/version` | Brave's DevTools endpoint, used to find its WebSocket |
 | `NOVNC_DIR` | `/usr/share/novnc` | Where the noVNC client is installed |
 | `RUST_LOG` | `headless_brave_web=info,warn` | Log filter for `headless-brave-web` |
 
-Ports `80` and `9222` do not authenticate the *caller* at all: anyone who can
-reach them can watch the screen, type into it, or drive the browser. Port
-`5900` asks for a password, but the password is handed to the web UI, which
-hands it to anyone who can reach port 80. The compose file therefore publishes
-all three on loopback; if you need them off-host, put an authenticating reverse
-proxy in front.
+**There is no authentication, and there is no plan for one.** Ports `8000` and
+`9222` do not authenticate the *caller* at all: anyone who can reach them can
+watch the screen, type into it, or drive the browser — and therefore reach
+anything you have logged in to. Port `5900` asks for a password, but the web UI
+fetches it from `/api/config` and hands it to whoever asks, so it protects
+nothing from someone who can reach `8000`.
+
+Treat the container as one process you either expose or you do not. The compose
+file publishes all three ports on loopback for that reason; `BIND_ADDR` is the
+knob inside the container. If you need it off-host, put an authenticating
+reverse proxy in front, and be aware that what you are protecting is a browser
+with a persistent, logged-in profile.
+
+## When something is wrong
+
+**The container restarted and the log says which part stopped.** It is a
+supervisor: if Xvfb, fluxbox, the browser or x11vnc exits, the container exits
+with it and the restart policy starts a fresh one. The last line before the
+stopping message names the culprit.
+
+```bash
+docker compose logs --tail=50 brave
+```
+
+**`web` never answers.** The first boot downloads the browser, so it needs the
+network and takes a little longer than later starts. If it never comes up, the
+log says why: no network, or a browser package that would not download.
+
+**The screen is blank but the container is up.** The browser is probably still
+installing, or an update is mid-restart. Both take a few seconds and log it.
+
+**An update failed.** A repository that could not be reached is not a failure —
+the working browser is left alone and the next check, six hours later, tries
+again. A failed *install* is different: the container exits deliberately so the
+next start rebuilds the browser from scratch rather than limping along with a
+half-written one. If a container is restarting in a loop, the log line naming
+the failing step is the answer; `/opt/.headless-brave-staging` is a leftover
+from an interrupted swap and is safe to delete.
+
+**Brave refuses to start and mentions a lock or a profile.** A stop that was not
+clean leaves Chromium's single-instance lock naming a process that no longer
+exists. The service clears those before starting, so seeing this usually means
+the profile is unusable for a different reason — most often it belongs to
+root, because it was created by an older container. A bind mount has to be
+uid 1000: `install -d -o 1000 -g 1000 /path/to/profile`.
+
+**The VNC client connects and shows nothing useful.** Check `VNC_PASSWORD` — it
+is generated at start and the web UI reads it from `/api/config`. A password
+with shell metacharacters is not the problem; an empty one is refused outright.
+
+**Logs.** The container writes to its own log file, not the journal, because
+the browser's own output is voluminous enough to get a journal's rate limiter
+to drop the service's lines. `docker compose logs` reads the file.
 
 ## How it works
 
@@ -212,7 +274,7 @@ flowchart TB
     subgraph container["headless-brave container"]
         entry["headless-brave-web<br/>PID 1: supervises all of it"]
         subgraph service["headless-brave-web · Rust"]
-            webui["web UI :80<br/>noVNC client"]
+            webui["web UI :8000<br/>noVNC client"]
             sockify["WebSocket bridge<br/>/websockify"]
             cdpproxy["CDP proxy :9222"]
             novnc["noVNC assets<br/>/novnc"]
