@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Cargo, daily: Brave-scale churn means a weekly look can miss a security
+  # patch. The 14-day cooldown quarantines anything published in the last two
+  # weeks, which is the supply-chain defence — it costs freshness, deliberately.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: daily
+      time: "02:00"
+    labels:
+      - dependencies
+    assignees:
+      - Delnegend
+    commit-message:
+      prefix: "chore(deps)"
+    cooldown:
+      default-days: 14
+    # Routine patches must not queue behind a breaking one.
+    groups:
+      patch-and-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+    open-pull-requests-limit: 2

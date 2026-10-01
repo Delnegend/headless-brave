@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # One gate, one contract: `just check`. No build matrix — the image is built
+  # by `docker compose build`, not by CI, and a gate that builds a 1.9 GB image
+  # on every push is a gate nobody waits for.
+  check:
+    name: Check (just check)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # Reads rust-toolchain.toml, which pins the version and asks for clippy
+      # and rustfmt, so CI and the image cannot drift apart.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: extractions/setup-just@v4
+
+      - name: Run checks
+        run: just check

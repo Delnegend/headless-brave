@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  # Weekly, so a week of dependency bumps becomes one tag instead of a week of
+  # version numbers. Updates accumulate on main until then.
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag & Release
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v7
+
+      # The version comes from the Conventional Commits since the last tag.
+      # There is no version input and no arithmetic in this repository: a
+      # release is a fact about the history, not a number someone typed.
+      - name: Next version (Conventional Commits)
+        id: semver
+        uses: ietf-tools/semver-action@v1
+        with:
+          token: ${{ github.token }}
+          # Must already exist. v0.1.0 is where this repository stood when the
+          # pipeline was adopted, so the first weekly release describes what
+          # came after it rather than re-releasing everything before it.
+          fallbackTag: v0.1.0
+          noNewCommitBehavior: silent
+          noVersionBumpBehavior: patch
+
+      # Notes only. What this project ships is a container image, built by
+      # `docker compose build`; there is no binary or package to attach, and a
+      # release that uploads an artifact nobody consumes is worse than none.
+      - name: Publish Consolidated Release
+        if: steps.semver.outputs.bump != 'none'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.semver.outputs.next }}
+          generate_release_notes: true
