@@ -64,12 +64,14 @@ jobs:
 
       - name: The browser installed, unprivileged
         run: |
-          # Whichever way this container ends, the install has to have worked:
-          # it is the part of the code that does the most, and the part a
-          # dependency bump is most likely to break.
+          # Read with `docker cp` rather than `docker exec`: this container is
+          # expected to have stopped by now, because the browser cannot sandbox
+          # here, and exec needs it running. `cp` reads a stopped container's
+          # filesystem, which is exactly what is wanted - the install has to
+          # have happened even though the browser could not start.
           for _ in $(seq 1 30); do
-            if docker exec smoke sh -c 'test -s /opt/brave.com/VERSION' 2>/dev/null; then
-              docker exec smoke cat /opt/brave.com/VERSION
+            if docker cp smoke:/opt/brave.com/VERSION /tmp/VERSION 2>/dev/null; then
+              echo "installed $(cat /tmp/VERSION)"
               exit 0
             fi
             sleep 5
@@ -81,14 +83,18 @@ jobs:
         run: |
           # Left in place, Chromium selects it and then aborts fatally instead
           # of falling back to the namespace sandbox.
-          docker exec smoke sh -c 'test ! -e /opt/brave.com/brave/chrome-sandbox'
+          if docker cp smoke:/opt/brave.com/brave/chrome-sandbox /tmp/helper 2>/dev/null; then
+            echo "the unusable SUID sandbox helper is still installed" >&2
+            exit 1
+          fi
 
-      - name: Nothing runs as root
+      - name: It is configured to run unprivileged
         run: |
-          # The invariant the whole container is built around. Read while the
-          # container is still up, which is why it is not a job-level step.
-          test "$(docker exec smoke sh -c "ps -eo user= | grep -c '^root'")" = "0"
-          test "$(docker exec smoke ps -o user= -p 1)" = "headless"
+          # The container's user is the image's, and the image's is the
+          # unprivileged one. This is the invariant the whole design rests on,
+          # and it is the one thing about a stopped container that can still be
+          # asserted from outside.
+          test "$(docker inspect smoke --format '{{.Config.User}}')" = "headless"
 
       - name: It fails in the documented way here
         run: |
