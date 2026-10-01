@@ -65,36 +65,45 @@ killed, which is long enough for the browser to close its profile.
 
 ## What comes from where
 
-- **noVNC** is the distribution's `novnc` package at `/usr/share/novnc`, served
-  from there. Being packaged is why there is no `build.rs` fetching a pinned
-  copy.
-- **Brave** is installed at start onto a volume at `/opt`, so a new release
-  costs a restart rather than a rebuild; the image keeps the shared libraries
-  and drops the payload, which is the part that moves. A ticker asks the
-  repository every six hours and installs whatever is newer, because Brave ships
-  security releases weekly and this is the container nobody remembers to update.
-  The install is `apt-get download` plus `dpkg-deb --extract` — no root, and no
-  dpkg database to reinstall into — with apt pointed at an index of its own
-  under the temporary directory, since the image's is not ours to write. The
-  package is unpacked and moved *inside* the volume, because a rename cannot
-  cross filesystems and `/tmp` is not on it. The version unpacked is recorded in
-  `/opt/brave.com/VERSION`, which is what the ticker compares against; a
-  repository it could not ask is not an upgrade, or a network outage would
-  reinstall on every tick.
-- **The browser** runs as `headless`, because Chromium refuses to start as root
-  without `--no-sandbox` and the sandbox is worth keeping for something browsing
-  the open web. Only the user-namespace sandbox is available, so the install
-  deletes the SUID helper the package ships: an unprivileged `dpkg-deb --extract`
-  cannot make it root-owned, and Chromium selects it on being present and
-  executable, then aborts fatally rather than falling back. `check_sandbox`
-  confirms namespaces exist before the browser starts, so a host without them is
-  told in one line instead of a stack trace.
-- **x11vnc** serves the screen. `-shared` lets several people watch at once,
-  `-forever` keeps serving after the last one leaves, and the browser is driven
-  over CDP rather than by whoever is looking.
-- **Xvfb** provides the screen. A restart that killed the previous one leaves
-  `/tmp/.X99-lock` behind and the next Xvfb refuses to start, so the service
-  clears it.
+| In the image | On a volume |
+|---|---|
+| Xvfb, fluxbox, x11vnc, noVNC, fonts | the browser itself |
+| Brave's shared libraries | the profile: cookies, logins, history |
+| the Rust service | |
+
+The libraries move far less often than the browser, so keeping its payload out
+means a new Brave costs a restart rather than a rebuild.
+
+```mermaid
+flowchart LR
+    repo["Brave's apt repo"] -->|"download"| deb["package in /tmp"]
+    deb -->|"extract"| stage["staging, inside the volume"]
+    stage -->|"rename"| live["/opt/brave.com + VERSION"]
+    live -.->|"every 6h, if newer"| repo
+```
+
+Staging is inside the volume because `rename()` cannot cross filesystems.
+
+- **noVNC** — the distro's `novnc` package, served from `/usr/share/novnc`.
+- **Brave** — installed at start, then every 6h: security releases are weekly
+  and this is the container nobody remembers to update.
+  - download + extract, not `apt-get install`: no root, no dpkg database
+  - index under `/tmp`; `VERSION` records what is installed, and a repository
+    it cannot ask is not an upgrade
+- **The browser** — as `headless`, so no `--no-sandbox`.
+  - only user namespaces work, so the SUID helper the package ships is deleted:
+    an unprivileged extract cannot chown it root, and Chromium picks it on
+    *presence*, then aborts instead of falling back
+  - `check_sandbox` fails first, in one line, if there are no namespaces
+
+### Flags that are easy to undo
+
+| Service | Flag | Why |
+|---|---|---|
+| x11vnc | `-shared` | several people watch at once |
+| x11vnc | `-forever` | keeps serving after the last viewer leaves; the browser is driven over CDP, not by whoever is looking |
+| Xvfb | `-noreset` | the screen survives the browser restarting for an update |
+| Xvfb | `-nolisten tcp` | nothing outside the container reaches the X socket |
 
 ## Layout
 
