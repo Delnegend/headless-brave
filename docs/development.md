@@ -88,21 +88,36 @@ Staging is inside the volume because `rename()` cannot cross filesystems.
 
 ## Layout
 
-| Path | What lives there |
-|---|---|
-| `src/main.rs` | entry point: tracing, config, then the supervisor |
-| `src/config.rs` | every environment variable, parsed once |
-| `src/supervise.rs` | PID 1 — installs the browser, starts everything, stops it if one part dies |
-| `src/web.rs` | routes, and the static handler for the noVNC tree |
-| `src/bridge.rs` | the two WebSocket relays |
-| `src/cdp.rs` | finding the browser's DevTools WebSocket |
-| `src/assets.rs` | the embedded page and script |
-| `web/` | the page and its script, embedded from here |
-| `Dockerfile` | the image |
-| `compose.yaml` | ports, volumes, log driver |
-| `justfile` | `just check`, which is the CI gate |
-| `scripts/smoke.sh` | functional check against a running container |
-| `clippy.toml` | lets the assertion lints run inside tests |
+```
+.
+├── src/
+│   ├── main.rs        tracing, config, then the supervisor
+│   ├── config.rs      every environment variable, parsed once
+│   ├── supervise.rs   PID 1: installs the browser, starts everything,
+│   │                  stops it all if one part dies
+│   ├── web.rs         routes, and the static handler for the noVNC tree
+│   ├── bridge.rs      the two WebSocket relays
+│   ├── cdp.rs         finding the browser's DevTools WebSocket
+│   └── assets.rs      the page and script, embedded
+├── web/               the page itself, embedded from here
+│   ├── index.html
+│   └── app.js
+├── scripts/
+│   └── smoke.sh       functional check against a running container
+├── docs/
+│   └── development.md this file
+├── .devcontainer/     the dev container
+├── .github/
+│   ├── dependabot.yml           daily, 14-day cooldown
+│   └── workflows/              ci, container, auto-merge, release
+├── Dockerfile         the image
+├── compose.yaml       ports, volumes, log driver
+├── justfile           `just check`, which is the CI gate
+├── Cargo.toml         deps and the lint set
+├── clippy.toml        lets the assertion lints run inside tests
+├── rust-toolchain.toml pins the toolchain the image is built with
+└── README.md          what it does and how to run it
+```
 
 ## Testing notes
 
