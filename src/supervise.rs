@@ -297,34 +297,30 @@ fn installed_brave_version(brave: &Brave) -> Option<String> {
         .map(|version| version.trim().to_owned())
 }
 
-/// Takes the setuid bit off Chromium's SUID sandbox helper, which is
-/// installed setuid root and cannot be that here: `dpkg-deb --extract` run as
-/// an unprivileged user leaves it owned by us, and the volume it lands on may
-/// be mounted `nosuid` besides.
+/// Removes Chromium's SUID sandbox helper from the install.
 ///
-/// Leaving it alone is worse than useless. Chromium tries the SUID sandbox
-/// before the user-namespace one, finds a setuid binary, and then refuses to
-/// start because it is not owned by root - fatally, without falling back. On
-/// any host that restricts unprivileged user namespaces, which includes
-/// Ubuntu 24.04 and GitHub's runners, that is the difference between a
-/// container that runs and one that exits on startup. Without the setuid bit
-/// the file is ignored and the namespace sandbox - the one that can work here -
-/// is used instead.
-fn unmake_setuid(root: &Path) {
-    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
-
+/// It ships setuid root, and cannot be that here: `dpkg-deb --extract` run as
+/// an unprivileged user leaves it owned by us, and the volume it lands on may
+/// be mounted `nosuid` besides. Leaving it in place is worse than useless.
+/// Chromium selects the SUID sandbox whenever the file is present and
+/// executable - not when it is setuid, which is what makes this easy to miss -
+/// and then aborts fatally because it is not owned by root, without falling
+/// back:
+///
+///     FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:172
+///     The SUID sandbox helper binary was found, but is not correctly configured.
+///
+/// Removing the setuid bit is not enough; the file has to be gone. What is left
+/// is the user-namespace sandbox, which is the one that can actually work
+/// without root, and which `check_sandbox` has already confirmed is available.
+fn remove_suid_helper(root: &Path) {
     let helper = root.join("brave").join("chrome-sandbox");
-    let Ok(metadata) = std::fs::metadata(&helper) else {
-        return;
-    };
-    if metadata.mode() & 0o4000 == 0 {
+    if !helper.exists() {
         return;
     }
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(permissions.mode() & !0o4000);
-    match std::fs::set_permissions(&helper, permissions) {
-        Ok(()) => info!("the SUID sandbox helper is unusable here; using namespaces instead"),
-        Err(error) => warn!(%error, "could not take the setuid bit off the sandbox helper"),
+    match std::fs::remove_file(&helper) {
+        Ok(()) => info!("removed the SUID sandbox helper; the browser will use namespaces"),
+        Err(error) => warn!(%error, "could not remove the unusable SUID sandbox helper"),
     }
 }
 
@@ -375,7 +371,7 @@ async fn apply_package(brave: &Brave, package: &Path) -> Result<()> {
     tokio::fs::write(target.join("VERSION"), package_version(package))
         .await
         .context("cannot record the version that was installed")?;
-    unmake_setuid(&target);
+    remove_suid_helper(&target);
 
     let _ = tokio::fs::remove_dir_all(&staging).await;
     Ok(())
