@@ -12,12 +12,19 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    name: Tag & Release
+  # What is being released, decided once and handed to everything else.
+  version:
+    name: Next version
     runs-on: ubuntu-slim
+    outputs:
+      # Set if and only if there is a release to make. With
+      # `noNewCommitBehavior: silent` the action exits before it computes
+      # anything and sets *no* outputs at all, not even `bump` — so the guard
+      # throughout this workflow tests the version, never `bump != 'none'`.
+      tag: ${{ steps.semver.outputs.next }}
     steps:
       - uses: actions/checkout@v7
 
@@ -36,17 +43,73 @@ jobs:
           noNewCommitBehavior: silent
           noVersionBumpBehavior: patch
 
-      # Notes only. What this project ships is a container image, built by
-      # `docker compose build`; there is no binary or package to attach, and a
-      # release that uploads an artifact nobody consumes is worse than none.
-      # The guard tests the version, not `bump`. With `noNewCommitBehavior:
-      # silent` the action exits before it computes anything and sets *no*
-      # outputs at all, so `bump` is empty rather than "none" — comparing it
-      # against "none" passes on an empty string and hands this step a blank
-      # tag. `next` is set if and only if there is a release to make.
-      - name: Publish Consolidated Release
-        if: steps.semver.outputs.next != ''
-        uses: softprops/action-gh-release@v3
+  # The container image is the artifact this project actually ships. It is
+  # built here rather than in CI on every push: a 725 MB build on each commit
+  # is minutes nobody asked for, and a release is the only moment a new image
+  # is owed to anyone.
+  #
+  # ghcr.io under this repository's own owner, so the push needs no stored
+  # credential — GITHUB_TOKEN already carries packages:write.
+  image:
+    name: Build & publish image
+    needs: version
+    if: needs.version.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
         with:
-          tag_name: ${{ steps.semver.outputs.next }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Layers are cached between weekly releases, so the Rust build is the
+          # only expensive part and it barely changes.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Runs only if the image was built and pushed: a release whose image failed
+  # is worse than no release, because the tag is what people pull.
+  release:
+    name: Publish Release
+    needs: [version, image]
+    runs-on: ubuntu-slim
+    permissions:
+      contents: write
+    steps:
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
+          body: |
+            Container image:
+
+            ```
+            podman pull ghcr.io/${{ github.repository }}:${{ needs.version.outputs.tag }}
+            ```
+
+            Or `latest` for the most recent release.
