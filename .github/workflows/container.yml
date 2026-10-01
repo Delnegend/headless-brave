@@ -40,11 +40,12 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Start it
-        run: docker run -d --name smoke -p 127.0.0.1:18000:8000 -p 127.0.0.1:19222:9222 headless-brave:smoke
-
-      - name: Show the log if it never comes up
-        if: failure()
-        run: docker logs smoke || true
+        # --shm-size matches the compose file. Chromium is unhappy on Docker's
+        # 64 MB default, and a bare `docker run` without it is not what we ship.
+        run: >
+          docker run -d --name smoke --shm-size=2g
+          -p 127.0.0.1:18000:8000 -p 127.0.0.1:19222:9222
+          headless-brave:smoke
 
       - name: The web service answers
         run: |
@@ -94,6 +95,18 @@ jobs:
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:19222/ || true)
           test -n "$code"
           echo "answered with $code"
+
+      # Last, and unconditional: a smoke test that fails without saying why is
+      # worse than none, and the exit status is usually the whole answer.
+      - name: What happened
+        if: always()
+        run: |
+          echo "=== container state ==="
+          docker ps -a --filter name=smoke --format '{{.Status}}'
+          echo "=== exit code ==="
+          docker inspect smoke --format '{{.State.ExitCode}} {{.State.Error}}' || true
+          echo "=== last 40 lines ==="
+          docker logs --tail=40 smoke 2>&1 || true
 
       - name: Clean up
         if: always()

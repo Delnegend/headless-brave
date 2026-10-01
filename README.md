@@ -27,7 +27,7 @@ from another viewer.
 Pull the published image, built weekly from `main`:
 
 ```bash
-podman run -d --name headless-brave \
+podman run -d --name headless-brave --shm-size=2g \
   -p 127.0.0.1:8000:8000 -p 127.0.0.1:5900:5900 -p 127.0.0.1:9222:9222 \
   -v headless-brave-data:/data -v headless-brave-opt:/opt \
   ghcr.io/delnegend/headless-brave:latest
