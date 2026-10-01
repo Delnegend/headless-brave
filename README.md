@@ -270,6 +270,23 @@ with shell metacharacters is not the problem; an empty one is refused outright.
 the browser's own output is voluminous enough to get a journal's rate limiter
 to drop the service's lines. `docker compose logs` reads the file.
 
+## Checking it works
+
+`scripts/smoke.sh` exercises a running container the way a person would: the
+web UI, the noVNC client, the browser process, the CDP bridge, and the two
+invariants worth protecting — nothing runs as root, and the browser's sandbox
+is on.
+
+```bash
+./scripts/smoke.sh              # the container named headless-brave on :8000
+CONTAINER=brave-headless ./scripts/smoke.sh
+```
+
+It uses `docker` or `podman`, whichever the host has. CI runs part of this
+automatically, but not all of it: GitHub-hosted runners forbid unprivileged
+user namespaces, which the browser here depends on, so the full check needs a
+normal Linux host.
+
 ## How it works
 
 ```mermaid
