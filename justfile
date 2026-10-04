@@ -1,9 +1,13 @@
-# The one command CI runs, and the one to run before pushing. Ordered so the
-# cheapest and most likely failure comes first.
+@default:
+    just --list
 
-# Format, lint and test. The container image is not built here: a gate that
-# builds is a gate that takes ten minutes.
+# Check formatting, linting, and run tests
 check:
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
     cargo test
+
+# Bump Cargo manifest version and update lockfile
+bump version:
+    sed -i -E '0,/^version = ".*"/s//version = "{{version}}"/' Cargo.toml
+    cargo check
