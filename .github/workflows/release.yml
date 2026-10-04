@@ -151,7 +151,7 @@ jobs:
 
       - name: Log in to ghcr.io
         if: needs.prepare.outputs.publish == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
