@@ -105,11 +105,15 @@ Staging is inside the volume because `rename()` cannot cross filesystems.
 ├── scripts/
 │   └── smoke.sh       functional check against a running container
 ├── docs/
-│   └── development.md this file
+│   ├── architecture.md  system supervisor, bridges, troubleshooting
+│   ├── configuration.md environment variables, storage, and security
+│   └── development.md   this file
 ├── .devcontainer/     the dev container
+├── .cargo/
+│   └── config.toml    14-day supply-chain quarantine
 ├── .github/
-│   ├── dependabot.yml           daily, 14-day cooldown
-│   └── workflows/              ci, container, auto-merge, release
+│   ├── dependabot.yml GitHub Actions weekly updates
+│   └── workflows/     auto-merge, ci, container, deps, release
 ├── Dockerfile         the image
 ├── compose.yaml       ports, volumes, log driver
 ├── justfile           `just check`, which is the CI gate
