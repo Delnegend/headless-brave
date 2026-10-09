@@ -37,7 +37,7 @@ struct Frame {
 
 /// The service a browser WebSocket is relayed to, split into the two halves
 /// the relay directions each own.
-pub struct Upstream {
+pub(crate) struct Upstream {
     reader: Reader,
     writer: Writer,
 }
@@ -58,7 +58,7 @@ enum Writer {
 }
 
 impl Upstream {
-    pub async fn tcp<A>(address: A) -> io::Result<Self>
+    pub(crate) async fn tcp<A>(address: A) -> io::Result<Self>
     where
         A: ToSocketAddrs,
     {
@@ -156,7 +156,7 @@ impl Writer {
 /// Relays the browser and the upstream in both directions until either side
 /// closes. Nothing is interpreted: a VNC session is a byte stream, and a
 /// `DevTools` session is already framed.
-pub async fn serve(client: WebSocket, Upstream { reader, writer }: Upstream) {
+pub(crate) async fn serve(client: WebSocket, Upstream { reader, writer }: Upstream) {
     let (client_tx, client_rx) = client.split();
     let _ = tokio::join!(
         tokio::spawn(relay_to_upstream(client_rx, writer)),
@@ -204,7 +204,7 @@ async fn relay_to_client(mut reader: Reader, mut client: SplitSink<WebSocket, Cl
 }
 
 /// Resolves the browser's `DevTools` WebSocket and relays the client to it.
-pub async fn serve_cdp(client: WebSocket, version_url: &str) {
+pub(crate) async fn serve_cdp(client: WebSocket, version_url: &str) {
     let upstream = match cdp::browser_websocket_url(version_url).await {
         Ok(url) => match Upstream::websocket(&url).await {
             Ok(upstream) => upstream,
@@ -225,10 +225,10 @@ pub async fn serve_cdp(client: WebSocket, version_url: &str) {
 
 /// WebSocket close code used when the service on the other end is not there.
 /// Application codes below 1000 are the only ones a server may pick.
-pub const CLOSE_UPSTREAM_UNAVAILABLE: u16 = 1000;
+pub(crate) const CLOSE_UPSTREAM_UNAVAILABLE: u16 = 1000;
 
 /// Closes a client's tunnel with a reason the peer can report.
-pub async fn close(mut client: WebSocket, code: u16, reason: &str) {
+pub(crate) async fn close(mut client: WebSocket, code: u16, reason: &str) {
     // A close reason is capped at 123 bytes by the protocol. Cutting one on a
     // byte count would split a character, so stop on a character boundary.
     let reason = truncate(reason, CLOSE_REASON_LIMIT);

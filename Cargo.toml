@@ -27,7 +27,17 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.26.1", features = ["v4"] }
 
+[lints.rust]
+# This binary exports nothing, so `pub` on anything in it claims a reachability
+# that does not exist. What is meant is `pub(crate)`, or nothing at all.
+unreachable_pub = "warn"
+
 [lints.clippy]
+# unreachable_pub, below, wants everything this binary does not export demoted
+# to pub(crate). This lint wants the qualification dropped instead, which would
+# put the pub back. In a binary both cannot hold, and the demotion is the one
+# that says something true.
+redundant_pub_crate = "allow"
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 unwrap_used = "deny"

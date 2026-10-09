@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The web UI, the noVNC client it loads, and the VNC bridge behind it.
-pub fn router(config: &Config) -> Router {
+pub(crate) fn router(config: &Config) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/app.js", get(app_js))
@@ -34,7 +34,7 @@ pub fn router(config: &Config) -> Router {
 
 /// The CDP proxy, on a port of its own so that `ws://host:9222/` keeps working
 /// for tools that were configured against the proxy that preceded it.
-pub fn cdp_router(config: &Config) -> Router {
+pub(crate) fn cdp_router(config: &Config) -> Router {
     Router::new().fallback(ws_cdp).with_state(config.clone())
 }
 

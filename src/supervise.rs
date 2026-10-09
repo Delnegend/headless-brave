@@ -60,7 +60,7 @@ enum Outcome {
 }
 
 /// Runs the container until something stops working, then stops everything.
-pub async fn run(config: Config) -> Result<()> {
+pub(crate) async fn run(config: Config) -> Result<()> {
     prepare(&config).await?;
 
     let mut services = Vec::new();

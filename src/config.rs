@@ -8,43 +8,43 @@ use serde::Serialize;
 /// The VNC server the web UI attaches to. The page has nothing to configure,
 /// so these settings decide what every visitor sees.
 #[derive(Clone, Debug, Serialize)]
-pub struct VncTarget {
-    pub host: String,
-    pub port: u16,
-    pub password: String,
+pub(crate) struct VncTarget {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) password: String,
 }
 
 /// The screen the browser is drawn on, and the browser itself.
 #[derive(Clone, Debug)]
-pub struct Session {
+pub(crate) struct Session {
     /// X display number, without the colon.
-    pub display: u16,
-    pub resolution: Resolution,
+    pub(crate) display: u16,
+    pub(crate) resolution: Resolution,
     /// Where the browser keeps its profile.
-    pub profile: PathBuf,
-    pub brave: Brave,
+    pub(crate) profile: PathBuf,
+    pub(crate) brave: Brave,
 }
 
 /// The browser's install, which lives on a volume rather than in the image.
 #[derive(Clone, Debug)]
-pub struct Brave {
+pub(crate) struct Brave {
     /// Where the payload is installed.
-    pub root: PathBuf,
+    pub(crate) root: PathBuf,
 }
 
 impl Brave {
     /// The browser itself, which is a file rather than the launcher the
     /// package installs: the launcher is the wrapper script next to it, which
     /// runs this and reports success whatever it did.
-    pub fn binary(&self) -> PathBuf {
+    pub(crate) fn binary(&self) -> PathBuf {
         self.root.join("brave-origin").join("brave")
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Resolution {
-    pub width: u32,
-    pub height: u32,
+pub(crate) struct Resolution {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 }
 
 impl fmt::Display for Resolution {
@@ -72,22 +72,22 @@ impl FromStr for Resolution {
 }
 
 #[derive(Clone, Debug)]
-pub struct Config {
+pub(crate) struct Config {
     /// Address for the web UI and its WebSocket bridge.
-    pub web_addr: SocketAddr,
+    pub(crate) web_addr: SocketAddr,
     /// Address for the CDP WebSocket proxy, kept separate so existing
     /// `ws://host:9222/` client configurations keep working.
-    pub cdp_addr: SocketAddr,
-    pub vnc: VncTarget,
+    pub(crate) cdp_addr: SocketAddr,
+    pub(crate) vnc: VncTarget,
     /// Brave's `DevTools` HTTP endpoint, used to discover the browser WebSocket.
-    pub cdp_version_url: String,
+    pub(crate) cdp_version_url: String,
     /// Where the noVNC client is served from, installed by the distribution.
-    pub novnc_dir: PathBuf,
-    pub session: Session,
+    pub(crate) novnc_dir: PathBuf,
+    pub(crate) session: Session,
 }
 
 impl Config {
-    pub fn from_env() -> Result<Self> {
+    pub(crate) fn from_env() -> Result<Self> {
         let bind = string("BIND_ADDR", "0.0.0.0");
         // 8000, not 80: the process is unprivileged, so it cannot bind a
         // privileged port, and the image says the same thing.

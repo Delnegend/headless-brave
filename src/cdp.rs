@@ -14,7 +14,7 @@ use serde::Deserialize;
 /// WebSocket close code used when the browser is not reachable. Application
 /// codes below 1000 are the only ones a server may pick; Chrome's own client
 /// surfaces the accompanying reason text.
-pub const CLOSE_UPSTREAM_UNAVAILABLE: u16 = 1000;
+pub(crate) const CLOSE_UPSTREAM_UNAVAILABLE: u16 = 1000;
 
 #[derive(Deserialize)]
 struct Version {
@@ -23,7 +23,7 @@ struct Version {
 }
 
 /// Fetches `version_url` and returns the browser's `DevTools` WebSocket URL.
-pub async fn browser_websocket_url(version_url: &str) -> Result<String> {
+pub(crate) async fn browser_websocket_url(version_url: &str) -> Result<String> {
     let uri: hyper::Uri = version_url
         .parse()
         .with_context(|| format!("{version_url} is not a valid URL"))?;
