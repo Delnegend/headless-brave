@@ -3,5 +3,4 @@ target/
 .github/
 README.md
 LICENSE
-.devcontainer/
 docker-compose.yml

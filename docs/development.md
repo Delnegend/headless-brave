@@ -1,14 +1,11 @@
 # Development
 
-How to work on headless-brave: the dev container, the checks, and the parts of
-the image that are easy to break by accident.
+How to work on headless-brave: the checks, and the parts of the image that are
+easy to break by accident.
 
 For what the thing does and how to run it, see the [README](../README.md).
 
 ## Checks
-
-The dev container (`.devcontainer/`) has Rust stable, clippy, rustfmt, mold and
-podman, so the image can be built and run from inside it.
 
 ```bash
 # the CI gate, and what to run before pushing
@@ -49,11 +46,11 @@ killed, which is long enough for the browser to close its profile.
 | In the image | On a volume |
 |---|---|
 | Xvfb, fluxbox, x11vnc, noVNC, fonts | the browser itself |
-| Brave's shared libraries | the profile: cookies, logins, history |
+| Brave Origin's shared libraries | the profile: cookies, logins, history |
 | the Rust service | |
 
 The libraries move far less often than the browser, so keeping its payload out
-means a new Brave costs a restart rather than a rebuild.
+means a new Brave Origin costs a restart rather than a rebuild.
 
 ```mermaid
 flowchart LR
@@ -66,7 +63,7 @@ flowchart LR
 Staging is inside the volume because `rename()` cannot cross filesystems.
 
 - **noVNC** — the distro's `novnc` package, served from `/usr/share/novnc`.
-- **Brave** — installed at start, then every 6h: security releases are weekly
+- **Brave Origin** — installed at start, then every 6h: security releases are weekly
   and this is the container nobody remembers to update.
   - download + extract, not `apt-get install`: no root, no dpkg database
   - index under `/tmp`; `VERSION` records what is installed, and a repository
@@ -108,7 +105,6 @@ Staging is inside the volume because `rename()` cannot cross filesystems.
 │   ├── architecture.md  system supervisor, bridges, troubleshooting
 │   ├── configuration.md environment variables, storage, and security
 │   └── development.md   this file
-├── .devcontainer/     the dev container
 ├── .cargo/
 │   └── config.toml    14-day supply-chain quarantine
 ├── .github/

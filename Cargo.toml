@@ -28,9 +28,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.26.1", features = ["v4"] }
 
 [lints.clippy]
-# "Teach you Rust, and stop panics at runtime." A WebSocket bridge in a
-# container has no user to report a panic to, so anything that could abort a
-# relay has to be a compile error instead.
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 unwrap_used = "deny"

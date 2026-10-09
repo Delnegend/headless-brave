@@ -34,10 +34,10 @@ pub struct Brave {
 
 impl Brave {
     /// The browser itself, which is a file rather than the launcher the
-    /// package installs: the launcher lives in the image, and the payload it
-    /// points at is the part that lives on the volume.
+    /// package installs: the launcher is the wrapper script next to it, which
+    /// runs this and reports success whatever it did.
     pub fn binary(&self) -> PathBuf {
-        self.root.join("brave").join("brave")
+        self.root.join("brave-origin").join("brave")
     }
 }
 

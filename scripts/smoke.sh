@@ -60,7 +60,7 @@ version=$("$RUNTIME" exec "$container" cat /opt/brave.com/VERSION 2>/dev/null)
 check $? "the browser is installed (${version:-unknown})"
 
 # 4. It is running.
-"$RUNTIME" exec "$container" pgrep -f 'brave/brave --disable-gpu' >/dev/null 2>&1
+"$RUNTIME" exec "$container" pgrep -f 'brave-origin/brave --disable-gpu' >/dev/null 2>&1
 check $? "the browser process is running"
 
 # 5. The sandbox is on. A browser that cannot sandbox will not start as this
@@ -73,7 +73,7 @@ check $? "the browser's sandbox is on"
 
 # 6. The SUID helper is gone, so Chromium uses namespaces rather than selecting
 #    a helper it cannot accept.
-"$RUNTIME" exec "$container" sh -c 'test ! -e /opt/brave.com/brave/chrome-sandbox'
+"$RUNTIME" exec "$container" sh -c 'test ! -e /opt/brave.com/brave-origin/chrome-sandbox'
 check $? "the unusable SUID helper is absent"
 
 # 7. The invariant the whole container is built around.

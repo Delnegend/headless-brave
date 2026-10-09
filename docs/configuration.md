@@ -16,7 +16,7 @@ All runtime settings are configured through environment variables passed to the 
 | `WEB_PORT` | `8000` | Port for the web UI and WebSocket VNC bridge |
 | `VNC_HOST` | `127.0.0.1` | Internal address the web UI bridge uses to reach x11vnc |
 | `CDP_PORT` | `9222` | Port for the CDP proxy |
-| `BROWSER_CDP_URL` | `http://127.0.0.1:9224/json/version` | Internal Brave DevTools endpoint used to resolve the WebSocket URL |
+| `BROWSER_CDP_URL` | `http://127.0.0.1:9224/json/version` | Internal Brave Origin DevTools endpoint used to resolve the WebSocket URL |
 | `NOVNC_DIR` | `/usr/share/novnc` | System path where noVNC client assets reside |
 | `RUST_LOG` | `headless_brave_web=info,warn` | Tracing filter for the Rust supervisor service |
 
@@ -84,7 +84,7 @@ await page.goto('https://example.com');
 The container uses two distinct volumes:
 
 - `/data`: Holds the browser profile (cookies, saved logins, history, extensions, local storage). Persists across container rebuilds and restarts.
-- `/opt`: Holds the extracted Brave browser package. Installed automatically on first run and updated in place.
+- `/opt`: Holds the extracted Brave Origin package. Installed automatically on first run and updated in place.
 
 ### Resetting State
 

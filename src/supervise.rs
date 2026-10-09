@@ -314,7 +314,7 @@ fn installed_brave_version(brave: &Brave) -> Option<String> {
 /// is the user-namespace sandbox, which is the one that can actually work
 /// without root, and which `check_sandbox` has already confirmed is available.
 fn remove_suid_helper(root: &Path) {
-    let helper = root.join("brave").join("chrome-sandbox");
+    let helper = root.join("brave-origin").join("chrome-sandbox");
     if !helper.exists() {
         return;
     }
@@ -357,7 +357,7 @@ async fn apply_package(brave: &Brave, package: &Path) -> Result<()> {
     // The package unpacks to ./opt/brave.com/...; only that subtree is ours to
     // keep, because the libraries it links against are already in the image.
     let unpacked = staging.join("opt").join("brave.com");
-    if !unpacked.join("brave").join("brave").is_file() {
+    if !unpacked.join("brave-origin").join("brave").is_file() {
         let _ = tokio::fs::remove_dir_all(&staging).await;
         bail!("the browser is not in the package");
     }
@@ -399,7 +399,7 @@ async fn download_package() -> Result<PathBuf> {
         apt("apt-get", &work)
             .current_dir(work.join("package"))
             .arg("download")
-            .arg("brave-browser"),
+            .arg("brave-origin"),
         "apt-get download",
     )
     .await?;
@@ -411,7 +411,7 @@ async fn download_package() -> Result<PathBuf> {
     let kept = keep.join(
         package
             .file_name()
-            .unwrap_or_else(|| std::ffi::OsStr::new("brave-browser.deb")),
+            .unwrap_or_else(|| std::ffi::OsStr::new("brave-origin.deb")),
     );
     tokio::fs::rename(&package, &kept)
         .await
@@ -436,13 +436,13 @@ async fn find_package(directory: &Path) -> Option<PathBuf> {
     })
 }
 
-/// The version out of a package filename, e.g. `brave-browser_1.2.3_amd64.deb`.
+/// The version out of a package filename, e.g. `brave-origin_1.2.3_amd64.deb`.
 fn package_version(package: &Path) -> String {
     package
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .and_then(|name| {
-            // brave-browser_1.2.3_amd64.deb: the version is the middle field.
+            // brave-origin_1.2.3_amd64.deb: the version is the middle field.
             let mut fields = name.trim_end_matches(".deb").splitn(3, '_');
             fields.next()?;
             fields.next().map(str::to_owned)
@@ -559,7 +559,7 @@ async fn newest_brave_version() -> Result<Option<String>> {
         return Ok(None);
     }
     let policy = capture(
-        apt("apt-cache", &work).arg("policy").arg("brave-browser"),
+        apt("apt-cache", &work).arg("policy").arg("brave-origin"),
         "apt-cache policy",
     )
     .await
@@ -633,6 +633,10 @@ fn brave(config: &Config) -> Command {
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
         .arg("--disable-features=Translate")
+        // The standalone build opens a page asking to be bought or to proceed
+        // for free. Nobody is at this desktop to click it, and without this it
+        // would be the tab every viewer and every agent starts on.
+        .arg("--skip-origin-startup-dialog")
         // The container is stopped abruptly, so a profile that survives it
         // always looks like a crash. Without this, a "Restore pages?" bubble is
         // waiting on the shared desktop every time, covering whatever the
@@ -737,7 +741,7 @@ mod tests {
     #[test]
     fn reads_the_version_out_of_a_package_name() {
         assert_eq!(
-            package_version(Path::new("/tmp/brave-browser_1.2.3_amd64.deb")),
+            package_version(Path::new("/tmp/brave-origin_1.2.3_amd64.deb")),
             "1.2.3"
         );
     }
