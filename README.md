@@ -1,6 +1,6 @@
 <div align="center">
 
-# headless-brave
+# Headless Brave
 
 **Run Brave Origin in a container with a VNC desktop, an in-browser client, and DevTools Protocol access for AI agents.**
 
