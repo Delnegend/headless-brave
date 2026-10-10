@@ -13,3 +13,6 @@ updates:
       - "Delnegend"
     commit-message:
       prefix: "chore(deps)"
+    # Supply chain security: quarantine newly published versions for 14 days
+    cooldown:
+      default-days: 14

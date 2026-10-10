@@ -17,10 +17,11 @@ FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
-# Defaults; every one of them is overridable at run time.
+# Defaults; every one of them is overridable at run time. VNC_PASSWORD has no
+# baked-in value on purpose: it lives only in the binary's and compose's
+# fallbacks, so the image layers never carry a credential.
 ENV RESOLUTION=1920x1080
 ENV VNC_DISPLAY=:99
-ENV VNC_PASSWORD=headless
 ENV VNC_PORT=5900
 ENV WEB_PORT=8000
 ENV CDP_PORT=9222

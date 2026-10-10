@@ -76,7 +76,7 @@ pub(crate) struct Config {
     /// Address for the web UI and its WebSocket bridge.
     pub(crate) web_addr: SocketAddr,
     /// Address for the CDP WebSocket proxy, kept separate so existing
-    /// `ws://host:9222/` client configurations keep working.
+    /// `ws://host:9222/` client configurations keep working. // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- doc comment naming a legacy client URL, not a connection this code makes
     pub(crate) cdp_addr: SocketAddr,
     pub(crate) vnc: VncTarget,
     /// Brave's `DevTools` HTTP endpoint, used to discover the browser WebSocket.
