@@ -32,8 +32,8 @@ pub(crate) fn router(config: &Config) -> Router {
         .with_state(config.clone())
 }
 
-/// The CDP proxy, on a port of its own so that `ws://host:9222/` keeps working
-/// for tools that were configured against the proxy that preceded it. // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- doc comment naming a legacy client URL, not a connection this code makes
+/// The CDP proxy, on a port of its own so that `ws://host:9222/` keeps working // nosemgrep
+/// for tools that were configured against the proxy that preceded it.
 pub(crate) fn cdp_router(config: &Config) -> Router {
     Router::new().fallback(ws_cdp).with_state(config.clone())
 }
