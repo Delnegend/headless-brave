@@ -42,14 +42,14 @@ jobs:
       publish: ${{ steps.resolve.outputs.publish }}
       skip: ${{ steps.resolve.outputs.skip }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           token: ${{ github.token }}
           persist_credentials: true
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: extractions/setup-just@v4
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
       # -----------------------------------------------------------------------
       # Mode 1: new-tag (calculate semver -> CI gate -> just bump -> atomic push)
@@ -57,7 +57,7 @@ jobs:
       - name: Calculate Next SemVer
         if: (inputs.target || 'new-tag') == 'new-tag'
         id: semver
-        uses: ietf-tools/semver-action@v1
+        uses: ietf-tools/semver-action@c90370b2958652d71c06a3484129a4d423a6d8a8 # v1
         with:
           token: ${{ github.token }}
           fallbackTag: v0.0.0
@@ -99,37 +99,34 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Resolve outputs
         id: resolve
+        env:
+          TARGET: ${{ inputs.target || 'new-tag' }}
+          INPUT_REF: ${{ inputs.ref }}
+          BUMP: ${{ steps.semver.outputs.bump }}
+          CURRENT: ${{ steps.semver.outputs.current }}
+          NEXT: ${{ steps.semver.outputs.next }}
+          NEXT_STRICT: ${{ steps.semver.outputs.nextStrict }}
         run: |
           set -euo pipefail
-          TARGET="${{ inputs.target || 'new-tag' }}"
-          INPUT_REF="${{ inputs.ref || '' }}"
-
           if [ "$TARGET" = "new-tag" ]; then
-            BUMP="${{ steps.semver.outputs.bump }}"
             if [ "$BUMP" = "none" ]; then
-              echo "No version bump needed (current: ${{ steps.semver.outputs.current }})."
+              echo "No version bump needed (current: ${CURRENT:-none})."
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "ref=${{ steps.semver.outputs.next }}" >> "$GITHUB_OUTPUT"
-            echo "version=${{ steps.semver.outputs.nextStrict }}" >> "$GITHUB_OUTPUT"
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-
+            {
+              echo "ref=$NEXT"
+              echo "version=$NEXT_STRICT"
+              echo "publish=true"
+              echo "skip=false"
+            } >> "$GITHUB_OUTPUT"
           elif [ "$TARGET" = "tag" ]; then
             TAG="${INPUT_REF:-$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)}"
             [ -n "$TAG" ] || { echo "::error::No release tag found"; exit 1; }
-            echo "ref=$TAG" >> "$GITHUB_OUTPUT"
-            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-
-          elif [ "$TARGET" = "commit" ]; then
+            { echo "ref=$TAG"; echo "version=${TAG#v}"; echo "publish=true"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
+          else
             SHA="${INPUT_REF:-$(git rev-parse HEAD)}"
-            echo "ref=$SHA" >> "$GITHUB_OUTPUT"
-            echo "version=$SHA" >> "$GITHUB_OUTPUT"
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            { echo "ref=$SHA"; echo "version=$SHA"; echo "publish=false"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
             echo "Running test build against commit $SHA (will not publish release)"
           fi
 
@@ -142,16 +139,16 @@ jobs:
       contents: write
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.ref }}
           fetch-depth: 0
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Log in to ghcr.io
         if: needs.prepare.outputs.publish == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -159,7 +156,7 @@ jobs:
 
       - name: Image tags
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -167,7 +164,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: ./Dockerfile
@@ -180,7 +177,7 @@ jobs:
 
       - name: Publish Consolidated Release
         if: needs.prepare.outputs.publish == 'true'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: ${{ needs.prepare.outputs.ref }}
           generate_release_notes: true
