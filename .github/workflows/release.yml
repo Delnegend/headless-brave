@@ -4,19 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "What to do"
+        description: "Step 1 = prepare the next version (bump + PR). Step 2 = publish it (tag + build + release). Run step 2 after the PR merges."
         required: true
         type: choice
         default: "prepare-release"
         options:
-          - prepare-release  # Bump the manifest, open/update the release PR (no tag, no build)
-          - publish          # Tag merged main (or rebuild ref), then build & publish the release
+          - prepare-release  # Step 1: calculate version, bump manifest, open/update release PR. No tag, no build.
+          - publish          # Step 2: tag merged main from the manifest (or rebuild ref below), then build & publish.
       ref:
-        description: "Existing tag to rebuild (publish only; empty = tag merged main)"
+        description: "publish only: rebuild this existing tag instead of tagging main. Leave empty for a normal publish."
         required: false
         type: string
       dry-run:
-        description: "Print what would happen, change nothing"
+        description: "Preview only: print each action (bump, PR, tag, publish) without doing any of it."
         required: false
         type: boolean
         default: false
