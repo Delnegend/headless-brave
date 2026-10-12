@@ -4,20 +4,24 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Release mode / build target"
+        description: "What to do"
         required: true
         type: choice
-        default: "new-tag"
+        default: "prepare-release"
         options:
-          - new-tag  # Bump version -> open PR (merge it, then run target=tag to build)
-          - tag      # Tag HEAD if missing -> build & publish release
-          - commit   # Test build latest commit -> upload Actions artifacts only (no release)
+          - prepare-release  # Bump the manifest, open/update the release PR (no tag, no build)
+          - publish          # Tag merged main (or rebuild ref), then build & publish the release
       ref:
-        description: "Custom tag or commit SHA (optional, defaults to latest)"
+        description: "Existing tag to rebuild (publish only; empty = tag merged main)"
         required: false
         type: string
+      dry-run:
+        description: "Print what would happen, change nothing"
+        required: false
+        type: boolean
+        default: false
   schedule:
-    - cron: '0 0 * * 0' # Weekly: Sunday 00:00 UTC (defaults to target: new-tag)
+    - cron: '0 0 * * 0' # Weekly: Sunday 00:00 UTC (runs prepare-release)
 
 concurrency:
   group: release-main
@@ -34,7 +38,7 @@ env:
 
 jobs:
   prepare:
-    name: Prepare / Bump Version
+    name: Prepare (bump, or resolve tag to build)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -53,10 +57,10 @@ jobs:
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
       # ------------------------------------------------------------------
-      # Mode 1: new-tag (semver -> CI gate -> bump -> open PR for review)
+      # prepare-release: semver -> CI gate -> bump -> open/update release PR
       # ------------------------------------------------------------------
       - name: Calculate Next SemVer
-        if: (inputs.target || 'new-tag') == 'new-tag'
+        if: (inputs.target || 'prepare-release') == 'prepare-release'
         id: semver
         uses: ietf-tools/semver-action@c90370b2958652d71c06a3484129a4d423a6d8a8 # v1
         with:
@@ -66,11 +70,11 @@ jobs:
           noVersionBumpBehavior: patch
 
       - name: CI Gate (verify code is green before bumping)
-        if: (inputs.target || 'new-tag') == 'new-tag' && steps.semver.outputs.bump != 'none'
+        if: (inputs.target || 'prepare-release') == 'prepare-release' && steps.semver.outputs.bump != 'none'
         run: just check
 
       - name: Bump package manager version
-        if: (inputs.target || 'new-tag') == 'new-tag' && steps.semver.outputs.bump != 'none'
+        if: (inputs.target || 'prepare-release') == 'prepare-release' && steps.semver.outputs.bump != 'none'
         env:
           NEXT_STRICT: ${{ steps.semver.outputs.nextStrict }}
         run: |
@@ -78,28 +82,47 @@ jobs:
           just bump "$NEXT_STRICT"
 
       - name: Commit and open release PR
-        if: (inputs.target || 'new-tag') == 'new-tag' && steps.semver.outputs.bump != 'none'
+        if: (inputs.target || 'prepare-release') == 'prepare-release' && steps.semver.outputs.bump != 'none'
         id: release-pr
         env:
           NEXT_TAG: ${{ steps.semver.outputs.next }}
           GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry-run }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "actions@users.noreply.github.com"
 
           git add -u
-          git diff --staged --quiet && { echo "::error::bump produced no change in package files"; exit 1; }
+          if git diff --staged --quiet; then
+            # Idempotent re-run: the bump already landed (PR merged, or this
+            # exact version was prepared before). Nothing to do.
+            echo "Manifest already at $NEXT_TAG; nothing to bump."
+            echo "branch=release/$NEXT_TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git commit -m "chore(release): ${NEXT_TAG}"
 
           BRANCH="release/${NEXT_TAG}"
-          git checkout -b "$BRANCH"
-          git push -u origin "$BRANCH"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[dry-run] would push $BRANCH and open/update the release PR"
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Idempotent: reset the branch if a previous run left it behind,
+          # overwrite only the bot's own branch, reuse the open PR.
+          git checkout -B "$BRANCH"
+          git push --force-with-lease -u origin "$BRANCH"
 
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          gh pr create --title "chore(release): ${NEXT_TAG}" \
-            --body "Automated version bump to \`${NEXT_TAG}\`. Merge this PR, then run the release workflow with \`target=tag\` to build and publish." \
-            --head "$BRANCH" --base main
+          if gh pr view "$BRANCH" >/dev/null 2>&1; then
+            echo "Release PR already open; updated the branch."
+          else
+            gh pr create --title "chore(release): ${NEXT_TAG}" \
+              --body "Automated version bump to \`${NEXT_TAG}\`. Auto-merge takes it once checks are green; then run this workflow with \`target=publish\` to tag, build, and publish." \
+              --head "$BRANCH" --base main
+          fi
 
       # -----------------------------------------------------------------------
       # Resolve outputs for Job 2 (build)
@@ -107,48 +130,52 @@ jobs:
       - name: Resolve outputs
         id: resolve
         env:
-          TARGET: ${{ inputs.target || 'new-tag' }}
+          TARGET: ${{ inputs.target || 'prepare-release' }}
           INPUT_REF: ${{ inputs.ref }}
+          DRY_RUN: ${{ inputs.dry-run }}
           BUMP: ${{ steps.semver.outputs.bump }}
           CURRENT: ${{ steps.semver.outputs.current }}
           NEXT: ${{ steps.semver.outputs.next }}
           NEXT_STRICT: ${{ steps.semver.outputs.nextStrict }}
         run: |
           set -euo pipefail
-          # new-tag only opens the release PR (branch protection blocks a
-          # direct push to main). Merge the PR, then re-run with target=tag.
-          if [ "$TARGET" = "new-tag" ]; then
+          # prepare-release only opens/updates the release PR (branch
+          # protection blocks a direct push to main). Nothing to build yet.
+          if [ "$TARGET" = "prepare-release" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             if [ "$BUMP" = "none" ]; then
               echo "No version bump needed (current: ${CURRENT:-none})."
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[dry-run] would bump to $NEXT and open/update release/$NEXT"
             else
-              echo "Release PR opened; merge it, then re-run with target=tag to build and publish."
+              echo "Release PR ready; auto-merge takes it, then run target=publish."
             fi
             exit 0
-          elif [ "$TARGET" = "tag" ]; then
-            if [ -n "$INPUT_REF" ]; then
-              # Re-run for an existing tag: build and publish it.
-              TAG="$INPUT_REF"
-            else
-              # Normal path: tag the merged release commit, then build it.
-              MANIFEST_VER="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-              [ -n "$MANIFEST_VER" ] || { echo "::error::No version in Cargo.toml"; exit 1; }
-              TAG="v$MANIFEST_VER"
-              if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-                echo "Tag $TAG already exists; building it."
-              else
-                git config user.name "github-actions[bot]"
-                git config user.email "actions@users.noreply.github.com"
-                git tag -a "$TAG" -m "Release $TAG"
-                git push origin "refs/tags/$TAG"
-              fi
-            fi
-            { echo "ref=$TAG"; echo "version=${TAG#v}"; echo "publish=true"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
-          else
-            SHA="${INPUT_REF:-$(git rev-parse HEAD)}"
-            { echo "ref=$SHA"; echo "version=$SHA"; echo "publish=false"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
-            echo "Running test build against commit $SHA (will not publish release)"
           fi
+          # publish: tag merged main (or rebuild ref), then build it.
+          if [ -n "$INPUT_REF" ]; then
+            TAG="$INPUT_REF"
+            echo "Rebuilding existing tag $TAG."
+          else
+            MANIFEST_VER="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+            [ -n "$MANIFEST_VER" ] || { echo "::error::No version in Cargo.toml"; exit 1; }
+            TAG="v$MANIFEST_VER"
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              echo "Tag $TAG already exists; building it."
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "[dry-run] would create tag $TAG, build it, and publish the release"
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "actions@users.noreply.github.com"
+              git tag -a "$TAG" -m "Release $TAG"
+              git push origin "refs/tags/$TAG"
+            fi
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          { echo "ref=$TAG"; echo "version=${TAG#v}"; echo "publish=true"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build & Release Artifacts
