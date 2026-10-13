@@ -111,13 +111,24 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           just bump "$NEXT_STRICT"
           git add -u
-          git diff --staged --quiet && { echo "::error::bump produced no change in package files"; exit 1; }
-          git commit -m "chore(release): ${NEXT}"
+          if git diff --staged --quiet; then
+            # Recovery: the bump already landed on main (a previous run's
+            # push succeeded but tagging failed, or the old PR flow merged
+            # it). Tag the existing commit and ship it.
+            MANIFEST_VER="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+            if [ "v$MANIFEST_VER" != "$NEXT" ]; then
+              echo "::error::bump produced no change, and manifest ($MANIFEST_VER) disagrees with calculated $NEXT_STRICT."
+              exit 1
+            fi
+            echo "Manifest already at $NEXT; tagging the existing commit."
+          else
+            git commit -m "chore(release): ${NEXT}"
+            # Push the commit first: if the tag push fails, main still has
+            # the bump and the next run recovers via the branch above.
+            git push origin HEAD:main
+          fi
           git rev-parse -q --verify "refs/tags/${NEXT}" >/dev/null && { echo "::error::tag ${NEXT} already exists"; exit 1; }
           git tag -a "${NEXT}" -m "Release ${NEXT}"
-          # Push commit and tag separately: if the tag push fails the commit
-          # is still on main and the next run recovers by tagging it.
-          git push origin HEAD:main
           git push origin "refs/tags/${NEXT}"
           { echo "ref=$NEXT"; echo "version=$NEXT_STRICT"; echo "publish=true"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
 
