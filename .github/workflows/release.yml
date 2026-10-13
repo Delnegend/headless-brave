@@ -93,12 +93,14 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Refuse to re-ship: the manifest must be ahead of the last tag.
+          # Refuse to re-ship: NEXT must sort after the latest tag.
           # (Catches re-runs after a release already shipped this version.)
           LATEST_TAG="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
-          if [ -n "$LATEST_TAG" ] && [ "$(printf '%s\n%s\n' "$NEXT" "$LATEST_TAG" | sort -V | head -n1)" != "$NEXT" ] && [ "$NEXT" != "$LATEST_TAG" ]; then
-            echo "::error::Calculated $NEXT is not ahead of latest tag $LATEST_TAG; nothing new to ship."
-            exit 1
+          if [ -n "$LATEST_TAG" ]; then
+            if [ "$NEXT" = "$LATEST_TAG" ] || [ "$(printf '%s\n%s\n' "$NEXT" "$LATEST_TAG" | sort -V | head -n1)" = "$NEXT" ]; then
+              echo "::error::Calculated $NEXT is not ahead of latest tag $LATEST_TAG; nothing new to ship."
+              exit 1
+            fi
           fi
           if [ "$DRY_RUN" = "true" ]; then
             echo "[dry-run] would bump to $NEXT_STRICT, tag $NEXT, push, build, and publish"
