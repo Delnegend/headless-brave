@@ -4,24 +4,28 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "Step 1 = prepare the next version (bump + PR). Step 2 = publish it (tag + build + release). Run step 2 after the PR merges."
+        description: "prepare-release = bump the manifest and open the release PR. publish = tag, build, and ship (also runs automatically when the PR merges, so manual publish is only for rebuilds)."
         required: true
         type: choice
         default: "prepare-release"
         options:
-          - prepare-release  # Step 1: calculate version, bump manifest, open/update release PR. No tag, no build.
-          - publish          # Step 2: tag merged main from the manifest (or rebuild ref below), then build & publish.
+          - prepare-release  # Station 1: work out the next version, bump the manifest, open/update the release PR. No tag, no build.
+          - publish          # Station 2: tag merged main from the manifest (or rebuild ref below), then build & ship the release.
       ref:
         description: "publish only: rebuild this existing tag instead of tagging main. Leave empty for a normal publish."
         required: false
         type: string
       dry-run:
-        description: "Preview only: print each action (bump, PR, tag, publish) without doing any of it."
+        description: "Preview only: print each action (bump, PR, tag, build, publish) without doing any of it."
         required: false
         type: boolean
         default: false
   schedule:
     - cron: '0 0 * * 0' # Weekly: Sunday 00:00 UTC (runs prepare-release)
+  # Station 2 fires itself: merging the release PR tags, builds, and ships.
+  pull_request:
+    branches: [main]
+    types: [closed]
 
 concurrency:
   group: release-main
@@ -39,8 +43,10 @@ env:
 jobs:
   prepare:
     name: Prepare (bump, or resolve tag to build)
+    # Station 2's auto-path: only merged PRs get here. Closed without
+    # merging exits before any job runs; non-release PRs exit in resolve.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     outputs:
       ref: ${{ steps.resolve.outputs.ref }}
       version: ${{ steps.resolve.outputs.version }}
@@ -52,6 +58,8 @@ jobs:
           token: ${{ github.token }}
           persist-credentials: true
           fetch-depth: 0
+          # Merge events check out main (the PR branch is already merged).
+          ref: ${{ github.event_name == 'pull_request' && 'main' || '' }}
 
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
@@ -120,7 +128,7 @@ jobs:
             echo "Release PR already open; updated the branch."
           else
             gh pr create --title "chore(release): ${NEXT_TAG}" \
-              --body "Automated version bump to \`${NEXT_TAG}\`. Auto-merge takes it once checks are green; then run this workflow with \`target=publish\` to tag, build, and publish." \
+              --body "Automated version bump to \`${NEXT_TAG}\`. Merging this PR tags, builds, and ships \`${NEXT_TAG}\` automatically." \
               --head "$BRANCH" --base main
           fi
 
@@ -133,12 +141,22 @@ jobs:
           TARGET: ${{ inputs.target || 'prepare-release' }}
           INPUT_REF: ${{ inputs.ref }}
           DRY_RUN: ${{ inputs.dry-run }}
+          EVENT: ${{ github.event_name }}
+          MERGED_HEAD: ${{ github.event.pull_request.head.ref }}
           BUMP: ${{ steps.semver.outputs.bump }}
           CURRENT: ${{ steps.semver.outputs.current }}
           NEXT: ${{ steps.semver.outputs.next }}
           NEXT_STRICT: ${{ steps.semver.outputs.nextStrict }}
         run: |
           set -euo pipefail
+          # Station 2's auto-path: a merged release/* PR means publish.
+          # Any other merged PR (deps, features) is not a release: exit.
+          if [ "$EVENT" = "pull_request" ]; then
+            case "$MERGED_HEAD" in
+              release/*) TARGET="publish"; INPUT_REF=""; DRY_RUN="false";;
+              *) echo "Merged $MERGED_HEAD is not a release PR; nothing to publish."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0;;
+            esac
+          fi
           # prepare-release only opens/updates the release PR (branch
           # protection blocks a direct push to main). Nothing to build yet.
           if [ "$TARGET" = "prepare-release" ]; then
