@@ -1,31 +1,27 @@
 name: Release / Build Artifacts
 
+# Solo-dev maintenance flow: one run, zero clicks on the happy path.
+# Sunday cron (or a manual run) gates on all of CI, then bumps, tags,
+# pushes, builds, and ships. No PR, no second run, no PAT.
+#
+# Branch protection keeps force-push/deletion/linear-history guards but
+# requires no status checks, so the bot pushes the bump straight to main.
+# The gate below is stronger than the old PR flow: it needs all 6 CI jobs
+# green, where the PR only required `Check`.
 on:
   workflow_dispatch:
     inputs:
-      target:
-        description: "prepare-release = bump the manifest and open the release PR. publish = tag, build, and ship (also runs automatically when the PR merges, so manual publish is only for rebuilds)."
-        required: true
-        type: choice
-        default: "prepare-release"
-        options:
-          - prepare-release  # Station 1: work out the next version, bump the manifest, open/update the release PR. No tag, no build.
-          - publish          # Station 2: tag merged main from the manifest (or rebuild ref below), then build & ship the release.
       ref:
-        description: "publish only: rebuild this existing tag instead of tagging main. Leave empty for a normal publish."
+        description: "Rebuild this existing tag instead of shipping a new version. Leave empty for a normal release."
         required: false
         type: string
       dry-run:
-        description: "Preview only: print each action (bump, PR, tag, build, publish) without doing any of it."
+        description: "Preview only: print each action (gate, bump, tag, build, publish) without doing any of it."
         required: false
         type: boolean
         default: false
   schedule:
-    - cron: '0 0 * * 0' # Weekly: Sunday 00:00 UTC (runs prepare-release)
-  # Station 2 fires itself: merging the release PR tags, builds, and ships.
-  pull_request:
-    branches: [main]
-    types: [closed]
+    - cron: '0 0 * * 0' # Weekly: Sunday 00:00 UTC
 
 concurrency:
   group: release-main
@@ -33,7 +29,6 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
 
 env:
   # Lowercase on purpose: buildx normalises the name on push, so `Delnegend`
@@ -41,12 +36,16 @@ env:
   IMAGE: ghcr.io/delnegend/headless-brave
 
 jobs:
+  # Every CI job must pass before anything ships.
+  gate:
+    name: Gate (all of CI)
+    uses: ./.github/workflows/ci.yml
+
   prepare:
-    name: Prepare (bump, or resolve tag to build)
-    # Station 2's auto-path: only merged PRs get here. Closed without
-    # merging exits before any job runs; non-release PRs exit in resolve.
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    name: Prepare (bump, tag, push)
+    needs: gate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       ref: ${{ steps.resolve.outputs.ref }}
       version: ${{ steps.resolve.outputs.version }}
@@ -58,17 +57,11 @@ jobs:
           token: ${{ github.token }}
           persist-credentials: true
           fetch-depth: 0
-          # Merge events check out main (the PR branch is already merged).
-          ref: ${{ github.event_name == 'pull_request' && 'main' || '' }}
 
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
-      # ------------------------------------------------------------------
-      # prepare-release: semver -> CI gate -> bump -> open/update release PR
-      # ------------------------------------------------------------------
       - name: Calculate Next SemVer
-        if: (inputs.target || 'prepare-release') == 'prepare-release'
         id: semver
         uses: ietf-tools/semver-action@c90370b2958652d71c06a3484129a4d423a6d8a8 # v1
         with:
@@ -77,123 +70,54 @@ jobs:
           noNewCommitBehavior: silent
           noVersionBumpBehavior: patch
 
-      - name: CI Gate (verify code is green before bumping)
-        if: (inputs.target || 'prepare-release') == 'prepare-release' && steps.semver.outputs.bump != 'none'
-        run: just check
-
-      - name: Bump package manager version
-        if: (inputs.target || 'prepare-release') == 'prepare-release' && steps.semver.outputs.bump != 'none'
-        env:
-          NEXT_STRICT: ${{ steps.semver.outputs.nextStrict }}
-        run: |
-          set -euo pipefail
-          just bump "$NEXT_STRICT"
-
-      - name: Commit and open release PR
-        if: (inputs.target || 'prepare-release') == 'prepare-release' && steps.semver.outputs.bump != 'none'
-        id: release-pr
-        env:
-          NEXT_TAG: ${{ steps.semver.outputs.next }}
-          GH_TOKEN: ${{ github.token }}
-          DRY_RUN: ${{ inputs.dry-run }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "actions@users.noreply.github.com"
-
-          git add -u
-          if git diff --staged --quiet; then
-            # Idempotent re-run: the bump already landed (PR merged, or this
-            # exact version was prepared before). Nothing to do.
-            echo "Manifest already at $NEXT_TAG; nothing to bump."
-            echo "branch=release/$NEXT_TAG" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git commit -m "chore(release): ${NEXT_TAG}"
-
-          BRANCH="release/${NEXT_TAG}"
-          if [ "$DRY_RUN" = "true" ]; then
-            echo "[dry-run] would push $BRANCH and open/update the release PR"
-            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Idempotent: reset the branch if a previous run left it behind,
-          # overwrite only the bot's own branch, reuse the open PR.
-          git checkout -B "$BRANCH"
-          git push --force-with-lease -u origin "$BRANCH"
-
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          if gh pr view "$BRANCH" >/dev/null 2>&1; then
-            echo "Release PR already open; updated the branch."
-          else
-            gh pr create --title "chore(release): ${NEXT_TAG}" \
-              --body "Automated version bump to \`${NEXT_TAG}\`. Merging this PR tags, builds, and ships \`${NEXT_TAG}\` automatically." \
-              --head "$BRANCH" --base main
-          fi
-
-      # -----------------------------------------------------------------------
-      # Resolve outputs for Job 2 (build)
-      # -----------------------------------------------------------------------
-      - name: Resolve outputs
+      - name: Bump, tag, and push
         id: resolve
         env:
-          TARGET: ${{ inputs.target || 'prepare-release' }}
           INPUT_REF: ${{ inputs.ref }}
           DRY_RUN: ${{ inputs.dry-run }}
-          EVENT: ${{ github.event_name }}
-          MERGED_HEAD: ${{ github.event.pull_request.head.ref }}
           BUMP: ${{ steps.semver.outputs.bump }}
           CURRENT: ${{ steps.semver.outputs.current }}
           NEXT: ${{ steps.semver.outputs.next }}
           NEXT_STRICT: ${{ steps.semver.outputs.nextStrict }}
         run: |
           set -euo pipefail
-          # Station 2's auto-path: a merged release/* PR means publish.
-          # Any other merged PR (deps, features) is not a release: exit.
-          if [ "$EVENT" = "pull_request" ]; then
-            case "$MERGED_HEAD" in
-              release/*) TARGET="publish"; INPUT_REF=""; DRY_RUN="false";;
-              *) echo "Merged $MERGED_HEAD is not a release PR; nothing to publish."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0;;
-            esac
-          fi
-          # prepare-release only opens/updates the release PR (branch
-          # protection blocks a direct push to main). Nothing to build yet.
-          if [ "$TARGET" = "prepare-release" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            if [ "$BUMP" = "none" ]; then
-              echo "No version bump needed (current: ${CURRENT:-none})."
-            elif [ "$DRY_RUN" = "true" ]; then
-              echo "[dry-run] would bump to $NEXT and open/update release/$NEXT"
-            else
-              echo "Release PR ready; auto-merge takes it, then run target=publish."
-            fi
+          # Rebuild path: an explicit tag means ship exactly that, no bump.
+          if [ -n "$INPUT_REF" ]; then
+            echo "Rebuilding existing tag $INPUT_REF."
+            { echo "ref=$INPUT_REF"; echo "version=${INPUT_REF#v}"; echo "publish=true"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # publish: tag merged main (or rebuild ref), then build it.
-          if [ -n "$INPUT_REF" ]; then
-            TAG="$INPUT_REF"
-            echo "Rebuilding existing tag $TAG."
-          else
-            MANIFEST_VER="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-            [ -n "$MANIFEST_VER" ] || { echo "::error::No version in Cargo.toml"; exit 1; }
-            TAG="v$MANIFEST_VER"
-            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-              echo "Tag $TAG already exists; building it."
-            elif [ "$DRY_RUN" = "true" ]; then
-              echo "[dry-run] would create tag $TAG, build it, and publish the release"
-            else
-              git config user.name "github-actions[bot]"
-              git config user.email "actions@users.noreply.github.com"
-              git tag -a "$TAG" -m "Release $TAG"
-              git push origin "refs/tags/$TAG"
-            fi
+          # Nothing releasable since the last tag: clean exit, no noise.
+          if [ "$BUMP" = "none" ]; then
+            echo "No version bump needed (current: ${CURRENT:-none})."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Refuse to re-ship: the manifest must be ahead of the last tag.
+          # (Catches re-runs after a release already shipped this version.)
+          LATEST_TAG="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 || true)"
+          if [ -n "$LATEST_TAG" ] && [ "$(printf '%s\n%s\n' "$NEXT" "$LATEST_TAG" | sort -V | head -n1)" != "$NEXT" ] && [ "$NEXT" != "$LATEST_TAG" ]; then
+            echo "::error::Calculated $NEXT is not ahead of latest tag $LATEST_TAG; nothing new to ship."
+            exit 1
           fi
           if [ "$DRY_RUN" = "true" ]; then
+            echo "[dry-run] would bump to $NEXT_STRICT, tag $NEXT, push, build, and publish"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          { echo "ref=$TAG"; echo "version=${TAG#v}"; echo "publish=true"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@users.noreply.github.com"
+          just bump "$NEXT_STRICT"
+          git add -u
+          git diff --staged --quiet && { echo "::error::bump produced no change in package files"; exit 1; }
+          git commit -m "chore(release): ${NEXT}"
+          git rev-parse -q --verify "refs/tags/${NEXT}" >/dev/null && { echo "::error::tag ${NEXT} already exists"; exit 1; }
+          git tag -a "${NEXT}" -m "Release ${NEXT}"
+          # Push commit and tag separately: if the tag push fails the commit
+          # is still on main and the next run recovers by tagging it.
+          git push origin HEAD:main
+          git push origin "refs/tags/${NEXT}"
+          { echo "ref=$NEXT"; echo "version=$NEXT_STRICT"; echo "publish=true"; echo "skip=false"; } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build & Release Artifacts
@@ -212,7 +136,6 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Log in to ghcr.io
-        if: needs.prepare.outputs.publish == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
@@ -233,15 +156,13 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ needs.prepare.outputs.publish == 'true' }}
-          load: ${{ needs.prepare.outputs.publish != 'true' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Publish Consolidated Release
-        if: needs.prepare.outputs.publish == 'true'
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: ${{ needs.prepare.outputs.ref }}
