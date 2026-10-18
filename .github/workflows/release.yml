@@ -115,6 +115,7 @@ jobs:
           file: ./Dockerfile
           push: ${{ needs.prepare.outputs.publish == 'true' }}
           load: ${{ needs.prepare.outputs.publish != 'true' }}
+          outputs: ${{ needs.prepare.outputs.publish == 'true' && 'type=image,compression=zstd,compression-level=4' || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
