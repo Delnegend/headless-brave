@@ -139,7 +139,9 @@ jobs:
             exit 0
           fi
           # Nothing releasable since the last tag: clean exit, no noise.
-          if [ "$BUMP" = "none" ]; then
+          # semver-action returns before setOutput('bump') when there are no
+          # new commits at all, so NEXT is the reliable signal, not BUMP.
+          if [ -z "$NEXT" ] || [ "$BUMP" = "none" ]; then
             echo "No version bump needed (current: ${CURRENT:-none})."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
