@@ -5,6 +5,13 @@ easy to break by accident.
 
 For what the thing does and how to run it, see the [README](../README.md).
 
+## Prerequisites
+
+- Rust 1.98.1 via `rustup` (pinned in `rust-toolchain.toml`, with clippy +
+  rustfmt), `just`
+- podman or docker; a Linux host with unprivileged user namespaces for the
+  full smoke test (GitHub runners forbid them, so CI covers only part)
+
 ## Checks
 
 ```bash
@@ -24,6 +31,7 @@ podman run --rm --shm-size=2g \
 ```
 
 `--shm-size` is not optional: Chromium is unhappy on Docker's 64 MB default.
+Dependencies carry a 14-day supply-chain quarantine (`.cargo/config.toml`).
 
 ## One binary is the container
 
@@ -82,42 +90,6 @@ Staging is inside the volume because `rename()` cannot cross filesystems.
 | x11vnc | `-forever` | keeps serving after the last viewer leaves; the browser is driven over CDP, not by whoever is looking |
 | Xvfb | `-noreset` | the screen survives the browser restarting for an update |
 | Xvfb | `-nolisten tcp` | nothing outside the container reaches the X socket |
-
-## Layout
-
-```
-.
-├── src/
-│   ├── main.rs        tracing, config, then the supervisor
-│   ├── config.rs      every environment variable, parsed once
-│   ├── supervise.rs   PID 1: installs the browser, starts everything,
-│   │                  stops it all if one part dies
-│   ├── web.rs         routes, and the static handler for the noVNC tree
-│   ├── bridge.rs      the two WebSocket relays
-│   ├── cdp.rs         finding the browser's DevTools WebSocket
-│   └── assets.rs      the page and script, embedded
-├── web/               the page itself, embedded from here
-│   ├── index.html
-│   └── app.js
-├── scripts/
-│   └── smoke.sh       functional check against a running container
-├── docs/
-│   ├── architecture.md  system supervisor, bridges, troubleshooting
-│   ├── configuration.md environment variables, storage, and security
-│   └── development.md   this file
-├── .cargo/
-│   └── config.toml    14-day supply-chain quarantine
-├── .github/
-│   ├── dependabot.yml GitHub Actions weekly updates
-│   └── workflows/     auto-merge, ci, container, deps, release
-├── Dockerfile         the image
-├── compose.yaml       ports, volumes, log driver
-├── justfile           `just check`, which is the CI gate
-├── Cargo.toml         deps and the lint set
-├── clippy.toml        lets the assertion lints run inside tests
-├── rust-toolchain.toml pins the toolchain the image is built with
-└── README.md          what it does and how to run it
-```
 
 ## Testing notes
 
