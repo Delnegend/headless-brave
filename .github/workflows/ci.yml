@@ -9,8 +9,6 @@ on:
   # Weekly: the base image can change with no commit.
   schedule:
     - cron: '17 4 * * 1'
-  # The release workflow calls the whole file as its gate: all jobs below
-  # must pass before anything ships.
   workflow_call:
 
 concurrency:
@@ -29,7 +27,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # Pinned by rust-toolchain.toml.
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
 
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
@@ -37,7 +34,6 @@ jobs:
       - name: Run checks
         run: just check
 
-  # Scans are non-blocking; only `Check` gates merge.
   smoke:
     name: Container (build + install)
     runs-on: ubuntu-latest
@@ -87,7 +83,6 @@ jobs:
 
       - name: It is configured to run unprivileged
         run: |
-          # Must stay `headless`.
           test "$(docker inspect smoke --format '{{.Config.User}}')" = "headless"
 
       - name: It fails in the documented way here
@@ -104,7 +99,6 @@ jobs:
             || grep -qE "Brave .*exited" /tmp/smoke.log \
             || { echo "the container stopped without saying why"; exit 1; }
 
-      # Unconditional: never fail silently.
       - name: What happened
         if: always()
         run: |

@@ -1,13 +1,5 @@
 name: Release / Build Artifacts
 
-# Solo-dev maintenance flow: one run, zero clicks on the happy path.
-# Sunday cron (or a manual run) gates on all of CI, then bumps, tags,
-# pushes, builds, and ships. No PR, no second run, no PAT.
-#
-# Branch protection keeps force-push/deletion/linear-history guards but
-# requires no status checks, so the bot pushes the bump straight to main.
-# The gate below is stronger than the old PR flow: it needs all 6 CI jobs
-# green, where the PR only required `Check`.
 on:
   workflow_dispatch:
     inputs:
@@ -36,7 +28,6 @@ env:
   IMAGE: ghcr.io/delnegend/headless-brave
 
 jobs:
-  # Every CI job must pass before anything ships.
   gate:
     name: Gate (all of CI)
     uses: ./.github/workflows/ci.yml
