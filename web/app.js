@@ -1,19 +1,11 @@
-// A bare window onto the session: no controls, no settings, no way out.
-// Opening the page is the whole interaction — it attaches to the VNC server
-// and shows the screen the browser is using.
-//
-// The screen is shared, so watching it never interferes with whatever is
-// driving the browser over CDP, and never takes the screen away from anyone
-// else watching it.
+// noVNC web viewer attaching to /websockify.
 
 import RFB from "/novnc/core/rfb.js";
 
 const screen = document.getElementById("screen");
 const notice = document.getElementById("notice");
 
-// The screen outlives any one viewer, so a dropped connection is worth
-// another attempt — but the waits grow, because a viewer that reconnects
-// faster than the desktop settles makes for a flicker.
+// Exponential backoff reconnect intervals in milliseconds.
 const RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
 
 let rfb = null;
@@ -62,12 +54,8 @@ function connect(password) {
     announce("");
     fit();
   });
-  // Whether we asked for it or the server went away, the answer is the same:
-  // the screen is shared and will be there again.
   client.addEventListener("disconnect", () => reconnect());
   client.addEventListener("credentialsrequired", () => {
-    // We always supply the password up front; being asked again means it was
-    // not accepted, so say so rather than asking a viewer who cannot answer.
     announce("the VNC password was rejected");
   });
   client.scaleViewport = true;
