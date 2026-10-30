@@ -1,0 +1,10 @@
+# Review by 2026-11-28; remove when OSV's affected range is corrected.
+# The maintainer advisory limits GHSA-qwgh-2vcv-g2f7 to >=0.11.0, <0.12.1:
+# https://github.com/RustCrypto/utils/security/advisories/GHSA-qwgh-2vcv-g2f7
+# The GitHub advisory database instead reports all versions <0.12.1:
+# https://github.com/advisories/GHSA-qwgh-2vcv-g2f7
+# OSV ignores this advisory for all versions; review if block-buffer changes.
+[[IgnoredVulns]]
+id = "GHSA-qwgh-2vcv-g2f7"
+ignoreUntil = 2026-11-28
+reason = "GHSA-qwgh-2vcv-g2f7: 0.10.4 is outside the maintainer advisory's affected range; OSV reports a broader range."
