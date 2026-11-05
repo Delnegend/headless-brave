@@ -43,7 +43,7 @@ second place the configuration is parsed.
 
 Nothing runs as root: the image creates a `headless` user and the service is it,
 so the install, the screen, the browser and both servers share one unprivileged
-owner. The volumes are created by the image for the same reason — a volume
+owner. The volumes are created by the image for the same reason: a volume
 inherits the ownership of the directory it is mounted over.
 
 `SIGTERM` is a clean path: children are asked to stop, given five seconds, then
@@ -70,13 +70,13 @@ flowchart LR
 
 Staging is inside the volume because `rename()` cannot cross filesystems.
 
-- **noVNC** — the distro's `novnc` package, served from `/usr/share/novnc`.
-- **Brave Origin** — installed at start, then every 6h: security releases are weekly
+- **noVNC:** the distro's `novnc` package, served from `/usr/share/novnc`.
+- **Brave Origin:** installed at start, then every 6h: security releases are weekly
   and this is the container nobody remembers to update.
   - download + extract, not `apt-get install`: no root, no dpkg database
   - index under `/tmp`; `VERSION` records what is installed, and a repository
     it cannot ask is not an upgrade
-- **The browser** — as `headless`, so no `--no-sandbox`.
+- **The browser:** as `headless`, so no `--no-sandbox`.
   - only user namespaces work, so the SUID helper the package ships is deleted:
     an unprivileged extract cannot chown it root, and Chromium picks it on
     *presence*, then aborts instead of falling back
@@ -98,7 +98,7 @@ close-reason truncation, and refusing a noVNC path that climbs out of its tree.
 These are where a malformed input from a peer could take the service down.
 
 Everything else needs a real container, and `scripts/smoke.sh` asks the running
-one — the web UI, the noVNC client, the browser process, the CDP bridge, and the
+one: the web UI, the noVNC client, the browser process, the CDP bridge, and the
 two invariants worth protecting: nothing runs as root, and the sandbox is on.
 
 ```bash

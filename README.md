@@ -31,11 +31,11 @@ Visit `http://127.0.0.1:8000` to view the desktop, or connect agents via `ws://1
 
 ## Highlights
 
-- **Persistent automation** — Browser and virtual screen run continuously, keeping CDP connections alive whether or not anyone is watching.
-- **Shared non-intrusive viewing** — Watch automation live via web UI (`:8000`) or VNC (`:5900`) without stealing focus from the agent.
-- **Unprivileged sandbox confinement** — Runs as UID 1000 with Chromium's native user-namespace sandbox enabled; renderers stay isolated.
-- **Self-updating browser engine** — Automatically polls upstream Brave Origin releases every 6 hours and updates `/opt` without losing container state.
-- **Zero external runtime dependencies** — Powered by a single static Rust binary (`headless-brave-web`) embedding web assets and WebSocket relays.
+- **Persistent automation:** Browser and virtual screen run continuously, keeping CDP connections alive whether or not anyone is watching.
+- **Shared non-intrusive viewing:** Watch automation live via web UI (`:8000`) or VNC (`:5900`) without stealing focus from the agent.
+- **Unprivileged sandbox confinement:** Runs as UID 1000 with Chromium's native user-namespace sandbox enabled; renderers stay isolated.
+- **Self-updating browser engine:** Automatically polls upstream Brave Origin releases every 6 hours and updates `/opt` without losing container state.
+- **Zero external runtime dependencies:** Powered by a single static Rust binary (`headless-brave-web`) embedding web assets and WebSocket relays.
 
 ## Common Options
 
@@ -69,9 +69,9 @@ For process supervision, WebSocket relays, and self-update internals, see **[Arc
 
 ## Documentation
 
-- **[Configuration](docs/configuration.md)** — Environment variables, MCP client setups, and volume persistence.
-- **[Architecture](docs/architecture.md)** — System supervisor, WebSocket bridges, update cycles, and troubleshooting.
-- **[Development](docs/development.md)** — Running checks, build steps, and smoke tests.
+- **[Configuration](docs/configuration.md):** Environment variables, MCP client setups, and volume persistence.
+- **[Architecture](docs/architecture.md):** System supervisor, WebSocket bridges, update cycles, and troubleshooting.
+- **[Development](docs/development.md):** Running checks, build steps, and smoke tests.
 
 ## License
 

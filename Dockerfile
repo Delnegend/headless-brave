@@ -39,7 +39,7 @@ RUN useradd --uid 1000 --user-group --create-home --shell /bin/bash headless \
     && chown headless:headless /data /opt
 
 # xvfb and x11vnc give the browser a desktop that can be watched without
-# touching it — any number of viewers share one read-mostly screen, and none of
+# touching it: any number of viewers share one read-mostly screen, and none of
 # them can take it away from the automation driving the browser over CDP.
 # novnc is the browser half of that, served by our own process.
 RUN --mount=type=cache,target=/var/cache/apt \
@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
 
 # Brave Origin is installed at container start onto a volume, so a new release
 # costs a restart rather than a rebuild. Only the shared libraries it links
-# against are baked in here — they move far less often than the browser — and
+# against are baked in here (they move far less often than the browser), and
 # the payload under /opt is dropped again so the image does not carry a copy
 # that the volume immediately shadows.
 COPY --from=brave-key /brave-browser-archive-keyring.gpg /usr/share/keyrings/

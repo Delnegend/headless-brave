@@ -64,7 +64,7 @@ function connect(password) {
 function reconnect() {
   if (retry !== null) return;
   if (attempt >= RETRY_DELAYS.length) {
-    announce("the desktop is not answering — reload to try again.");
+    announce("the desktop is not answering; reload to try again.");
     return;
   }
 

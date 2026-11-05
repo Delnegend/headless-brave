@@ -104,8 +104,8 @@ async fn novnc_file(
 }
 
 fn debug_missing(path: &Path, error: &std::io::Error) {
-    // A missing file is ordinary — the client asks for things it does not
-    // use — so it is not worth failing over.
+    // A missing file is ordinary: the client asks for things it does not
+    // use, so it is not worth failing over.
     if error.kind() != std::io::ErrorKind::NotFound {
         tracing::debug!(?path, ?error, "could not read an asset");
     }
@@ -114,7 +114,7 @@ fn debug_missing(path: &Path, error: &std::io::Error) {
 /// Resolves `requested` under `root`, or `None` if it would escape.
 ///
 /// The noVNC tree is a directory of scripts the browser asks for by name, so
-/// it has to be walked — but nothing may climb out of it.
+/// it has to be walked, but nothing may climb out of it.
 fn resolve_within(root: &Path, requested: &str) -> Option<PathBuf> {
     let mut path = root.to_path_buf();
     for segment in requested.split('/') {

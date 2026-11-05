@@ -16,7 +16,7 @@ services:
       - "127.0.0.1:8000:8000"
       - "127.0.0.1:5900:5900"
       - "127.0.0.1:9222:9222"
-    # Everything the browser remembers — cookies, logins, history, extensions —
+    # Everything the browser remembers (cookies, logins, history, extensions)
     # and the browser itself, which is installed onto its own volume on the
     # first start so a new release costs a restart rather than a rebuild.
     # "docker compose down -v" is what throws both away.
@@ -31,7 +31,7 @@ services:
       - VNC_PASSWORD=${VNC_PASSWORD:-headless}
     restart: unless-stopped
     # journald rate-limits container output, and this service's log is drowned
-    # by the browser's own chatter — enough that the supervisor's lines were
+    # by the browser's own chatter, enough that the supervisor's lines were
     # being dropped. Podman has no `local` driver; `k8s-file` is its file-based
     # one, which rotates and keeps everything.
     logging:

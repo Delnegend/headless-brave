@@ -3,7 +3,7 @@
 //! This is the whole container: the browser install, the screen, the window
 //! manager, the VNC server, and the web service that lets a browser watch the
 //! screen and a tool drive it. Whichever part stops first brings the container
-//! down — a half-running desktop is worse than one that restarts and comes
+//! down; a half-running desktop is worse than one that restarts and comes
 //! back whole.
 
 use std::{
@@ -689,7 +689,7 @@ async fn x11vnc(config: &Config) -> Result<Service> {
         .arg(password_file)
         // -shared: every viewer sees the same screen and none of them owns it.
         // -forever: keep serving after the last viewer disconnects, which is
-        // the whole point — the browser is driven over CDP, not by whoever
+        // the whole point: the browser is driven over CDP, not by whoever
         // happens to be looking.
         .arg("-forever")
         .arg("-shared")
