@@ -41,7 +41,7 @@ Visit `http://127.0.0.1:8000` to view the desktop, or connect agents via `ws://1
 
 - **[Architecture](docs/architecture.md)**: System supervisor, WebSocket bridges, update cycles, and troubleshooting.
 - **[Development](docs/development.md)**: Running checks, build steps, and smoke tests.
-- **[Deployment](docs/deployment.md)**: Container deployment via Podman or Docker Compose, smoke verification, and upgrades.
+- **[Deployment](docs/deployment.md)**: Container deployment, smoke verification, and upgrades; see [configuration](docs/configuration.md) for environment variables.
 
 ## License
 

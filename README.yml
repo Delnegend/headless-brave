@@ -38,7 +38,7 @@ documentation:
   deployment:
     title: "Deployment"
     path: "docs/deployment.md"
-    description: "Container deployment via Podman or Docker Compose, smoke verification, and upgrades."
+    description: "Container deployment, smoke verification, and upgrades; see [configuration](docs/configuration.md) for environment variables."
 
 license:
   type:
