@@ -4,9 +4,9 @@
 
 **Run Brave Origin in a container with a VNC desktop, an in-browser client, and DevTools Protocol access for AI agents.**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Delnegend/headless-brave/ci.yml?branch=main&style=flat-square)](https://github.com/Delnegend/headless-brave/actions)
-[![Release](https://img.shields.io/github/v/release/Delnegend/headless-brave?style=flat-square)](https://github.com/Delnegend/headless-brave/releases)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![CI](https://badgers.space/github/checks/Delnegend/headless-brave/main?corner_radius=0&label=build)](https://github.com/Delnegend/headless-brave/actions)
+[![Release](https://badgers.space/github/release/Delnegend/headless-brave?corner_radius=0&color=ea7233)](https://github.com/Delnegend/headless-brave/releases)
+[![License](https://badgers.space/badge/license/MIT/007ec6?corner_radius=0)](LICENSE)
 
 </div>
 
